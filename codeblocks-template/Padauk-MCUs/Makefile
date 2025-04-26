@@ -3,9 +3,9 @@
 # ---------------------------------------------------------------------
 # Set the following variables:
 #
-# DEVICE = PFS154        # e.g., PFS154, PMS150C, etc.
-# ARCH = pdk14  # e.g., pdk14, pdk15, pdk13
-# PROJECT_NAME = karkol       # e.g., MyProject
+# DEVICE       = <Device_Name>        # e.g., PFS154, PMS150C, etc.
+# ARCH         = <Architecture_Name>  # e.g., pdk14, pdk15, pdk13
+# PROJECT_NAME = <Project_Name>       # e.g., MyProject
 #
 # Required compile settings:
 # F_CPU        = <Frequency>          # e.g., 8000000
@@ -13,12 +13,12 @@
 # TARGET_VDD    = <Voltage_Volts>     # e.g., 5.0
 #
 # Optional:
-# OPT_FLAGS = --opt-code-size
+# OPT_FLAGS     = --opt-code-size     # Code optimization flags
 #
 # Example:
 # DEVICE = PFS154
 # ARCH = pdk14
-# PROJECT_NAME = karkol
+# PROJECT_NAME = MyProject
 # F_CPU = 8000000
 # TARGET_VDD_MV = 5000
 # TARGET_VDD = 5.0
@@ -28,7 +28,7 @@
 # Default settings
 DEVICE = PFS154
 ARCH = pdk14
-PROJECT_NAME = karkol
+PROJECT_NAME = MyProject
 F_CPU = 8000000
 TARGET_VDD_MV = 5000
 TARGET_VDD = 5.0
@@ -45,8 +45,8 @@ SOURCES = main.c
 OBJECTS = $(patsubst %.c,$(BUILD_DIR)/%.rel,$(SOURCES))
 
 # Toolchain
-COMPILE = sdcc-sdcc -m$(ARCH) -c $(OPT_FLAGS) -D$(DEVICE) -DF_CPU=$(F_CPU) -DTARGET_VDD_MV=$(TARGET_VDD_MV) -DTARGET_VDD=$(TARGET_VDD) -I. -I include
-LINK = sdcc-sdcc -m$(ARCH)
+COMPILE = sdcc -m$(ARCH) -c $(OPT_FLAGS) -D$(DEVICE) -DF_CPU=$(F_CPU) -DTARGET_VDD_MV=$(TARGET_VDD_MV) -DTARGET_VDD=$(TARGET_VDD) -I. -I include
+LINK = sdcc -m$(ARCH)
 EASYPDKPROG = easypdkprog
 
 # ROM and RAM sizes
