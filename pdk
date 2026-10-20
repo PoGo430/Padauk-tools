@@ -15,6 +15,7 @@ Run inside a project folder (or any subfolder). `pdk help <command>` for details
 Only needs Python 3.8+ and make; everything else is done by the project's Makefile.
 """
 import argparse
+import difflib
 import os
 import re
 import shutil
@@ -57,6 +58,24 @@ def info(msg):
 def die(msg, code=1):
     print(_c("31", "error: ") + msg, file=sys.stderr)
     sys.exit(code)
+
+
+def did_you_mean(word, choices):
+    """' Did you mean X?' for a typo, or '' when nothing is close."""
+    lower = {c.lower(): c for c in choices}
+    close = difflib.get_close_matches(str(word).lower(), list(lower), n=1, cutoff=0.6)
+    return f" Did you mean {_c('1', lower[close[0]])}?" if close else ""
+
+
+def example_names():
+    if not os.path.isdir(EXAMPLES):
+        return []
+    return sorted(n for n in os.listdir(EXAMPLES) if os.path.isfile(os.path.join(EXAMPLES, n, "main.c")))
+
+
+def unknown_device(name, devices):
+    die(f"unknown device '{name}'.{did_you_mean(name, devices)}\n"
+        f"       Common: {', '.join(MAIN_CHIPS)}. All chips: pdk devices")
 
 
 # ----------------------------------------------------------------------------
@@ -150,9 +169,30 @@ def make(project, *targets, extra=()):
         die("'make' not found. Run: pdk doctor")
     cmd = ["make", "--no-print-directory", *targets, *extra]
     try:
-        return subprocess.call(cmd, cwd=project)
+        rc = subprocess.call(cmd, cwd=project)
     except KeyboardInterrupt:
         return 130
+    if rc not in (0, 130):
+        if not shutil.which("sdcc"):
+            warn("sdcc is not on your PATH. Run: pdk doctor")
+        elif set(targets) & {"program", "run", "probe", "erase", "read"} and \
+                not shutil.which(os.environ.get("EASYPDKPROG") or "easypdkprog"):
+            warn("easypdkprog is not on your PATH. Run: pdk doctor")
+    return rc
+
+
+def cmd_status():
+    """What `pdk` alone prints inside a project: settings plus the usual next commands."""
+    project = find_project()
+    print(__doc__.split("\n\n")[0].strip())
+    print()
+    cmd_config(argparse.Namespace(project=project))
+    s = project_settings(project)
+    ihx = os.path.join(project, ".output", f"{s['PROJECT_NAME']}_{s['DEVICE']}.ihx")
+    built = f"built ({os.path.relpath(ihx, project)})" if os.path.isfile(ihx) else "not built yet"
+    print(f"  status   {built}")
+    print(f"\n  next     pdk build  |  pdk flash [-m]  |  pdk monitor  |  pdk set clock=1M  |  pdk doctor")
+    print("  help     pdk help  (all commands)  |  pdk help <command>")
 
 
 def parse_frequency(v):
@@ -179,11 +219,16 @@ def parse_voltage(v):
 # ----------------------------------------------------------------------------
 def cmd_new(a):
     devices = load_devices()
-    device = a.device.upper()
+    device = a.device.strip().upper()
     if device not in devices:
-        die(f"unknown device '{a.device}'. See: pdk devices")
-    if a.example and not os.path.isfile(os.path.join(EXAMPLES, a.example, "main.c")):
-        die(f"unknown example '{a.example}'. See: pdk examples")
+        unknown_device(a.device, devices)
+    if a.example:
+        names = example_names()
+        match = {n.lower(): n for n in names}.get(a.example.strip().lower())
+        if not match:
+            die(f"unknown example '{a.example}'.{did_you_mean(a.example, names)}\n"
+                f"       Examples: {', '.join(names)}. Details: pdk examples")
+        a.example = match
     dest = os.path.abspath(a.name)
     if os.path.exists(dest):
         die(f"{dest} already exists")
@@ -215,7 +260,7 @@ def cmd_new(a):
     if shown.startswith(".."):
         shown = dest
     if a.no_code:
-        print(f"\n  cd {shown} && pdk build")
+        print(f"\n  Next:  cd {shown} && pdk build      (then: pdk flash)")
     elif shutil.which("code"):
         subprocess.call(["code", dest])
     else:
@@ -237,7 +282,11 @@ def cmd_flash(a):
     if devices.get(s["DEVICE"], ("", 0, 0, ""))[3] == "otp" and not a.yes:
         if not sys.stdin.isatty():
             die(f"{s['DEVICE']} is OTP (write once). Add --yes to confirm.")
-        reply = input(f"{s['DEVICE']} is one-time programmable. Write it now? [y/N] ")
+        try:
+            reply = input(f"{s['DEVICE']} is one-time programmable. Write it now? [y/N] ")
+        except (EOFError, KeyboardInterrupt):
+            reply = ""
+            print()
         if reply.strip().lower() not in ("y", "yes"):
             sys.exit(1)
     targets = ["program", "run"] if a.monitor else ["program"]
@@ -264,11 +313,11 @@ def cmd_set(a):
         key, value = pair.split("=", 1)
         var = keys.get(key.strip().lower())
         if not var:
-            die(f"unknown setting '{key}'. Keys: device, clock, vdd, name")
+            die(f"unknown setting '{key}'.{did_you_mean(key.strip(), keys)} Keys: device, clock, vdd, name")
         if var == "DEVICE":
             value = value.strip().upper()
             if value not in devices:
-                die(f"unknown device '{value}'. See: pdk devices")
+                unknown_device(value, devices)
             if value in DEV_BRANCH_ONLY:
                 warn(f"{value} needs easypdkprog from the development branch (docs/setup.md)")
         elif var == "F_CPU":
@@ -283,7 +332,10 @@ def cmd_set(a):
     with open(mk, "w") as f:
         f.write(text)
     write_intellisense(project, devices)
+    ok("Makefile updated")
     cmd_config(a)
+    info("next: pdk build" + ("   (pdk_init.c may need: pdk generate)"
+                              if os.path.isfile(os.path.join(project, "padauk.json")) else ""))
 
 
 def cmd_device(a):
@@ -307,8 +359,11 @@ def cmd_config(a):
 
 def cmd_devices(a):
     devices = load_devices()
-    print(f"  {'DEVICE':<9}{'ARCH':<7}{'ROM':>6}{'RAM':>6}  MEMORY")
-    for name in sorted(devices, key=lambda n: (n not in MAIN_CHIPS, n)):
+    print(_c("1", f"  {'DEVICE':<9}{'ARCH':<7}{'ROM':>6}{'RAM':>6}  MEMORY"))
+    names = sorted(devices, key=lambda n: (n not in MAIN_CHIPS, n))
+    for i, name in enumerate(names):
+        if i and names[i - 1] in MAIN_CHIPS and name not in MAIN_CHIPS:
+            print(_c("2", "  -- other chips (not covered by tools/test-all.sh) --"))
         arch, rom, ram, mem = devices[name]
         note = []
         if name in DEV_BRANCH_ONLY:
@@ -324,8 +379,8 @@ def cmd_examples(a):
             continue
         with open(path) as f:
             m = re.search(r"\*\s*\w+\s*-\s*(.+)", f.read())
-        print(f"  {name:<16}{m.group(1).strip() if m else ''}")
-    print("\n  pdk new <name> -e <example>")
+        print(f"  {_c('1', f'{name:<16}')}{m.group(1).strip() if m else ''}")
+    print("\n  pdk new <name> -e <example>      e.g.  pdk new hello -e serial_hello")
 
 
 def human_hz(hz):
@@ -519,6 +574,7 @@ def cmd_generate(a):
     hooked = g.hook_main(project)
     for change in hooked or []:
         ok("main.c: " + change)
+    info("next: pdk build")
 
 
 def cmd_install(a):
@@ -601,11 +657,19 @@ def main():
     s = sub.add_parser("help", help="show help for a command")
     s.add_argument("topic", nargs="?")
 
+    argv = sys.argv[1:]
+    if not argv and find_project():
+        return cmd_status()
+    if argv and not argv[0].startswith("-") and argv[0] not in sub.choices:
+        hint = did_you_mean(argv[0], sub.choices)
+        die(f"unknown command '{argv[0]}'.{hint} All commands: pdk help", code=2)
     a = p.parse_args()
     if a.command in (None, "help"):
         topic = getattr(a, "topic", None)
         if topic and topic in sub.choices:
             sub.choices[topic].print_help()
+        elif topic:
+            die(f"no command '{topic}'.{did_you_mean(topic, sub.choices)} All commands: pdk help")
         else:
             print(__doc__.strip())
             print()

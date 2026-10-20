@@ -150,8 +150,8 @@ def open_drain_only(device, pin):
 def pin_functions(device, pin):
     """Functions available on a pin, in menu order."""
     c = chip(device)
-    if not re.fullmatch(r"P[A-C]\d", pin):
-        return []
+    if not re.fullmatch(r"P[A-C]\d", pin) or pin not in all_io_pins(device):
+        return []       # not an I/O pin, or not on this chip at all (e.g. PB0 on the PMS150C)
     funcs = ["gpio_od" if open_drain_only(device, pin) else "gpio_out", "gpio_in"]
     if pin in c["ints"]:
         funcs.append("int")
@@ -240,6 +240,105 @@ def pin_name(cfg, pin):
     return entry.get("name") or pin
 
 
+# Suggested names for a newly assigned pin (made unique with 2, 3, ...); the user can rename them
+DEFAULT_NAMES = {"gpio_out": "LED", "gpio_od": "OUT", "gpio_in": "BUTTON", "int": "BUTTON",
+                 "tm2_pwm": "PWM", "tm3_pwm": "PWM", "pwmg0": "PWM", "pwmg1": "PWM", "pwmg2": "PWM",
+                 "adc": "ANALOG", "comp_plus": "COMP_PLUS", "comp_minus": "COMP_MINUS", "comp_out": "COMP_OUT",
+                 "serial_tx": "TX"}
+
+
+def is_default_name(pin, name):
+    """True if a name is the bare pin or one of our suggestions (so it's fine to replace it)."""
+    bases = "|".join(sorted(set(DEFAULT_NAMES.values())))
+    return not name or name == pin or re.fullmatch(rf"(?:{bases})\d*", name) is not None
+
+
+def suggest_name(cfg, pin, fn):
+    """A short, unique, function-based name for a pin, e.g. 'LED', 'BUTTON2'; the bare pin if none fits."""
+    base = DEFAULT_NAMES.get(fn)
+    if not base:
+        return pin
+    taken = {pin_name(cfg, p) for p in cfg["pins"] if p != pin}
+    name, i = base, 2
+    while name in taken:
+        name, i = f"{base}{i}", i + 1
+    return name
+
+
+def pin_number(cfg, pin):
+    """Physical pin number on the selected package, or None if the pin isn't bonded out."""
+    pins = current_package(cfg)["pins"]
+    return pins.index(pin) + 1 if pin in pins else None
+
+
+def pin_usage(cfg, pin):
+    """What the generated code gives you for one configured pin, e.g. 'LED_high(), LED_low(), LED_toggle()'."""
+    e = cfg["pins"].get(pin)
+    if not e:
+        return ""
+    fn, n = e["function"], pin_name(cfg, pin)
+    if fn == "gpio_out":
+        return f"{n}_high(), {n}_low(), {n}_toggle()"
+    if fn == "gpio_od":
+        return f"{n}_low(), {n}_high() (= release), {n}_toggle()"
+    if fn == "gpio_in":
+        return f"{n}_read()"
+    if fn == "int":
+        irq = chip(cfg["device"])["ints"].get(pin, ("int?",))[0].lower()
+        return f"{n}_read(), {n}_triggered() (clear with pdk_{irq}_flag = 0)"
+    if fn in PWM_FUNCS:
+        return f"{n}_set_duty(0..{n}_PWM_MAX)"
+    if fn == "adc":
+        return f"{n}_read() (0..255)"
+    if fn == "serial_tx":
+        return 'serial_println("text"), serial_print_uint(n), putchar(c)'
+    return ""
+
+
+def usage(cfg):
+    """One line per pin/feature: what to call in your code after generating."""
+    lines = []
+    for pin in sorted(cfg["pins"]):
+        text = pin_usage(cfg, pin)
+        if text:
+            lines.append(text)
+    funcs = {e["function"] for e in cfg["pins"].values()}
+    if cfg["comp"]["enabled"] or funcs & {"comp_plus", "comp_minus", "comp_out"}:
+        lines.append("COMP_read()" + (", pdk_comp_flag" if cfg["comp"]["interrupt"] else ""))
+    if cfg["system"]["millis"]:
+        lines.append("millis()")
+    if cfg["system"]["watchdog"] != "off":
+        lines.append("pdk_watchdog_feed()")
+    return lines
+
+
+def resources(cfg):
+    """Shared hardware blocks and who uses them: [(name, user or None), ...] for this chip."""
+    c = chip(cfg["device"])
+    pins = cfg["pins"]
+
+    def label(p):
+        return p if pin_name(cfg, p) == p else f"{pin_name(cfg, p)} ({p})"
+
+    def users(*funcs):
+        return ", ".join(label(p) for p, e in sorted(pins.items()) if e["function"] in funcs) or None
+
+    out = [("Timer2", users("tm2_pwm", "serial_tx"))]
+    if c["tm3_out"]:
+        out.append(("Timer3", users("tm3_pwm")))
+    for n in sorted(c["pwmg_out"]):
+        out.append((f"PWMG{n}", users(f"pwmg{n}")))
+    for irq in sorted({v[0] for v in c["ints"].values()}):
+        out.append((irq, ", ".join(label(p) for p, e in sorted(pins.items())
+                                   if e["function"] == "int" and c["ints"].get(p, ("",))[0] == irq) or None))
+    comp = users("comp_plus", "comp_minus", "comp_out")
+    out.append(("Comparator", comp or ("on" if cfg["comp"]["enabled"] else None)))
+    if c["adc"]:
+        out.append(("ADC", users("adc")))
+    out.append(("Timer16", "millis()" if cfg["system"]["millis"] else None))
+    return out
+
+
 def default_lvr(device, vdd_mv):
     """Highest LVR level at or below ~80% of VDD."""
     levels = chip(device)["lvr"][1]
@@ -267,6 +366,9 @@ def check(cfg, f_cpu, vdd_mv):
     for pin, entry in sorted(cfg["pins"].items()):
         fn = entry.get("function")
         if fn not in pin_functions(device, pin):
+            if pin not in all_io_pins(device):
+                errors.append(f"{pin} doesn't exist on the {device}: set it to (unused)")
+                continue
             errors.append(f"{pin}: '{FUNCTIONS.get(fn, (fn,))[0]}' is not available on this pin")
             continue
         if pin not in pkg_pins:
@@ -395,10 +497,12 @@ def generate(cfg, f_cpu, vdd_mv):
     h += hdr + ["", "#ifndef PDK_INIT_H", "#define PDK_INIT_H", "", "#include <stdint.h>", "#include <pdk/device.h>", ""]
 
     # ---- pin table comment
-    h.append("// Pins")
+    h.append(f"// Pins (pin numbers for the {cfg['package']} package)")
     for pin in sorted(pins):
         e = pins[pin]
-        h.append(f"//   {pin}  {pin_name(cfg, pin):<14} {FUNCTIONS[e['function']][0]}")
+        num = pin_number(cfg, pin)
+        h.append(f"//   {pin}  {'pin ' + str(num) if num else '(n/a)':<7} {pin_name(cfg, pin):<14} "
+                 f"{FUNCTIONS[e['function']][0]}")
     h.append("")
 
     # ---- per-pin macros

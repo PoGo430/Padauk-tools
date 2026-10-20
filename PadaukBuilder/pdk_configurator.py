@@ -9,6 +9,7 @@ project and hooks them into main.c. Settings are saved in padauk.json.
 
   python3 pdk_configurator.py [project-folder]     (or: pdk configure)
 """
+import html
 import importlib.machinery
 import importlib.util
 import os
@@ -16,13 +17,13 @@ import re
 import sys
 
 from PyQt5.QtCore import QPointF, QRectF, Qt, pyqtSignal
-from PyQt5.QtGui import QBrush, QColor, QFont, QPainter, QPen
+from PyQt5.QtGui import QBrush, QColor, QFont, QKeySequence, QPainter, QPen
 from PyQt5.QtWidgets import (
     QAbstractItemView, QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
     QDoubleSpinBox, QFormLayout, QGraphicsRectItem, QGraphicsScene, QGraphicsSimpleTextItem,
     QGraphicsView, QGroupBox, QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit,
     QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox, QPlainTextEdit, QPushButton,
-    QScrollArea, QSpinBox, QSplitter, QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout,
+    QScrollArea, QShortcut, QSpinBox, QSplitter, QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout,
     QWidget,
 )
 
@@ -77,7 +78,7 @@ class PinItem(QGraphicsRectItem):
         self.setPen(QPen(QColor("#000000"), 2))
 
     def hoverLeaveEvent(self, event):
-        self.setPen(QPen(QColor("#555555"), 1))
+        self.setPen(self.view.pin_pen(self.pin))
 
 
 class ChipView(QGraphicsView):
@@ -93,10 +94,24 @@ class ChipView(QGraphicsView):
         self.setRenderHint(QPainter.Antialiasing)
         self.setMinimumSize(420, 380)
         self.setBackgroundBrush(QColor("#fafafa"))
+        self.pin_items = {}
+        self.highlighted = None
+
+    def pin_pen(self, pin):
+        if pin == self.highlighted:
+            return QPen(QColor("#ff6f00"), 4)
+        return QPen(QColor("#555555"), 1)
+
+    def highlight(self, pin):
+        """Outline one pin (the row selected in the Pins table); None clears it."""
+        self.highlighted = pin
+        for p, item in self.pin_items.items():
+            item.setPen(self.pin_pen(p))
 
     def draw(self, cfg):
         scene = self.scene()
         scene.clear()
+        self.pin_items = {}
         pkg = g.current_package(cfg)
         pins = pkg["pins"]
         n = len(pins)
@@ -155,7 +170,8 @@ class ChipView(QGraphicsView):
                 rect = QRectF(off - W / 2, body.top() - L, W, L)
             item = PinItem(self, pin, idx + 1, rect)
             item.setBrush(QBrush(QColor(color)))
-            item.setPen(QPen(QColor("#555555"), 1))
+            item.setPen(self.pin_pen(pin))
+            self.pin_items[pin] = item
             item.setToolTip(self.tooltip(cfg, pin, idx + 1))
             scene.addItem(item)
 
@@ -198,9 +214,16 @@ class ChipView(QGraphicsView):
                 else:
                     out.setRotation(-90)
                     out.setPos(rect.center().x() - ob.height() / 2, rect.top() - 6)
+        below = body.bottom() + (self.PIN_LEN + 30 if pkg["quad"] else 10)
         for desc, pin in pkg["extra"]:
             t = scene.addSimpleText(f"{desc}: {pin}", QFont("Sans", 8))
-            t.setPos(body.left(), body.bottom() + (self.PIN_LEN + 30 if pkg["quad"] else 10))
+            t.setPos(body.left(), below)
+            below += t.boundingRect().height() + 2
+        hidden = [f"{p} ({g.pin_name(cfg, p)})" for p in sorted(cfg["pins"]) if p not in pins]
+        if hidden:
+            t = scene.addSimpleText("Set up but not on this package: " + ", ".join(hidden), QFont("Sans", 9))
+            t.setBrush(QColor("#9a6700"))
+            t.setPos(body.left(), below)
         self.setSceneRect(scene.itemsBoundingRect().adjusted(-20, -20, 20, 20))
         self.fitInView(self.sceneRect(), Qt.KeepAspectRatio)
 
@@ -250,8 +273,10 @@ class ConfiguratorWindow(QMainWindow):
         self.vdd = int(settings["TARGET_VDD_MV"])
         self.updating = False
         self.dirty = False
+        self.selected_pin = None    # row selected in the Pins table, outlined on the chip
 
-        self.setWindowTitle(f"Padauk Configurator - {os.path.basename(project)}")
+        # [*] shows a '*' in the title while there are changes that aren't generated yet
+        self.setWindowTitle(f"Padauk Configurator - {os.path.basename(project)}[*]")
         self.resize(1250, 800)
 
         root = QWidget()
@@ -288,12 +313,16 @@ class ConfiguratorWindow(QMainWindow):
         self.gen_btn.clicked.connect(self.generate)
         btns.addWidget(self.gen_btn)
         close = QPushButton("Close")
+        close.setToolTip("Close the configurator (Esc or Ctrl+W)")
         close.clicked.connect(self.close)
         btns.addWidget(close)
         btns.addStretch(1)
         bottom.addLayout(btns)
         outer.addLayout(bottom)
         self.setCentralWidget(root)
+        QShortcut(QKeySequence("Ctrl+G"), self, self.generate)
+        QShortcut(QKeySequence("Ctrl+W"), self, self.close)
+        QShortcut(QKeySequence(Qt.Key_Escape), self, self.close)
         self.refresh()
 
     # ----- top bar / legend ----------------------------------------------------
@@ -330,21 +359,36 @@ class ConfiguratorWindow(QMainWindow):
             row.addSpacing(6)
         row.addStretch(1)
         hint = QLabel("Click a pin to assign it")
+        hint.setToolTip("Left or right click a pin on the chip to choose its function.\n"
+                        "Select a row in the Pins table to find that pin on the chip.")
         hint.setStyleSheet("color: #777")
         row.addWidget(hint)
         return w
 
     # ----- tabs ----------------------------------------------------------------
     def build_pins_tab(self):
+        w = QWidget()
+        v = QVBoxLayout(w)
+        v.setContentsMargins(0, 0, 0, 0)
         self.pin_table = QTableWidget(0, 5)
         self.pin_table.setHorizontalHeaderLabels(["Pin", "Name (used in code)", "Function", "Option", "Edge"])
+        self.pin_table.horizontalHeaderItem(0).setToolTip("Port pin and its pin number on the selected package")
+        self.pin_table.horizontalHeaderItem(1).setToolTip("Double-click a name to rename it")
         self.pin_table.verticalHeader().setVisible(False)
-        self.pin_table.setSelectionMode(QAbstractItemView.NoSelection)
+        self.pin_table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.pin_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         hdr = self.pin_table.horizontalHeader()
         hdr.setSectionResizeMode(QHeaderView.ResizeToContents)
         hdr.setSectionResizeMode(1, QHeaderView.Stretch)
         self.pin_table.itemChanged.connect(self.pin_name_edited)
-        return self.pin_table
+        self.pin_table.itemSelectionChanged.connect(self.pin_row_selected)
+        v.addWidget(self.pin_table, 1)
+        self.hw_label = QLabel()
+        self.hw_label.setWordWrap(True)
+        self.hw_label.setToolTip("Each timer, PWM generator (PWMG) and interrupt (INTx) can drive only one pin")
+        self.hw_label.setContentsMargins(6, 2, 6, 6)
+        v.addWidget(self.hw_label)
+        return w
 
     def build_pwm_tab(self):
         self.pwm_area = QScrollArea()
@@ -568,6 +612,13 @@ class ConfiguratorWindow(QMainWindow):
             it.setForeground(QColor("#2e7d32"))
             self.problems.addItem(it)
         self.gen_btn.setEnabled(not errors)
+        self.gen_btn.setToolTip("Fix the errors in the list on the left first" if errors else
+                                "Write pdk_init.c/h and padauk.json, update the Makefile and main.c (Ctrl+G)")
+        self.hw_label.setText("<b>Hardware:</b> " + " &nbsp;· ".join(
+            f"<span style='white-space:nowrap'>{name}: <b>{html.escape(user)}</b></span>" if user else
+            f"<span style='white-space:nowrap'>{name}: <span style='color:#2e7d32'>free</span></span>"
+            for name, user in g.resources(self.cfg)))
+        self.setWindowModified(self.dirty)
         h, c = g.generate(self.cfg, self.f_cpu, self.vdd)
         for ed, text in ((self.code_h, h), (self.code_c, c)):
             bar = ed.verticalScrollBar().value()
@@ -576,7 +627,7 @@ class ConfiguratorWindow(QMainWindow):
 
     def changed(self):
         self.dirty = True
-        self.refresh()
+        self.refresh()          # also puts the '*' (unsaved) in the title
 
     # ----- pins ---------------------------------------------------------------
     def fill_pin_table(self):
@@ -595,12 +646,26 @@ class ConfiguratorWindow(QMainWindow):
         info = g.pin_info(cfg["device"])
         for r, (pin, e) in enumerate(rows):
             fn = e["function"]
-            item = QTableWidgetItem(pin)
-            item.setFlags(Qt.ItemIsEnabled)
-            item.setBackground(QColor(GROUP_COLORS[g.FUNCTIONS[fn][2]]).lighter(150))
+            num = g.pin_number(cfg, pin)
+            item = QTableWidgetItem(f"{pin}  ({num})" if num else f"{pin}  (-)")
+            item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+            item.setData(Qt.UserRole, pin)
+            group = g.FUNCTIONS[fn][2] if fn in g.FUNCTIONS else None
+            item.setBackground(QColor(GROUP_COLORS[group]).lighter(150))
+            if num:
+                item.setToolTip(f"{pin} is pin {num} on the {cfg['package']} package")
+            else:
+                item.setToolTip(f"{pin} is not on the {cfg['package']} package: nothing to connect it to.\n"
+                                "Pick a bigger package or set it to (unused).")
+                font = item.font()
+                font.setItalic(True)
+                item.setFont(font)
+                item.setForeground(QColor("#9a6700"))
             self.pin_table.setItem(r, 0, item)
             name = QTableWidgetItem(g.pin_name(cfg, pin))
             name.setData(Qt.UserRole, pin)
+            usage = g.pin_usage(cfg, pin)
+            name.setToolTip(("In your code: " + usage + "\n" if usage else "") + "Double-click to rename")
             self.pin_table.setItem(r, 1, name)
 
             func = QComboBox()
@@ -639,7 +704,26 @@ class ConfiguratorWindow(QMainWindow):
                 self.pin_table.setCellWidget(r, 4, edge)
             else:
                 self.pin_table.setCellWidget(r, 4, QLabel(""))
+        if self.selected_pin not in cfg["pins"]:
+            self.selected_pin = None
+        if self.selected_pin in cfg["pins"]:
+            self.pin_table.selectRow([p for p, _ in rows].index(self.selected_pin))
         self.pin_table.blockSignals(False)
+        self.chip_view.highlight(self.selected_pin if self.selected_pin in cfg["pins"] else None)
+
+    def pin_row_selected(self):
+        items = self.pin_table.selectedItems()
+        self.selected_pin = items[0].data(Qt.UserRole) if items else None
+        self.chip_view.highlight(self.selected_pin)
+
+    def select_pin_row(self, pin):
+        """Select a pin's row in the Pins table (if it is set up), which also outlines it on the chip."""
+        for r in range(self.pin_table.rowCount()):
+            if self.pin_table.item(r, 0).data(Qt.UserRole) == pin:
+                self.pin_table.selectRow(r)
+                self.pin_table.scrollToItem(self.pin_table.item(r, 0))
+                return
+        self.pin_table.clearSelection()
 
     def pin_name_edited(self, item):
         if self.updating or item.column() != 1:
@@ -657,7 +741,10 @@ class ConfiguratorWindow(QMainWindow):
             self.cfg["pins"].pop(pin, None)
         else:
             old = self.cfg["pins"].get(pin, {})
-            self.cfg["pins"][pin] = {"function": fn, "name": old.get("name", pin)}
+            name = old.get("name", pin)
+            if g.is_default_name(pin, name):        # keep names the user typed, suggest the rest
+                name = g.suggest_name(self.cfg, pin, fn)
+            self.cfg["pins"][pin] = {"function": fn, "name": name}
             if fn in g.PWM_FUNCS:
                 self.cfg["pwm"].setdefault(fn, {"freq": 1000, "duty": 50, "invert": False})
             if fn in ("comp_plus", "comp_minus", "comp_out"):
@@ -693,6 +780,7 @@ class ConfiguratorWindow(QMainWindow):
 
     def pin_menu(self, pin, pos):
         cfg = self.cfg
+        self.select_pin_row(pin)
         menu = QMenu(self)
         cur = cfg["pins"].get(pin, {}).get("function")
         title = menu.addAction(f"{pin}" + (f"  ({g.pin_name(cfg, pin)})" if cur else ""))
@@ -807,11 +895,21 @@ class ConfiguratorWindow(QMainWindow):
         old = self.cfg
         new = g.default_config(device)
         dropped = []
-        for pin, e in old["pins"].items():
+        for pin, e in sorted(old["pins"].items()):
             if e["function"] in g.pin_functions(device, pin):
                 new["pins"][pin] = e
             else:
-                dropped.append(f"{pin} ({g.FUNCTIONS[e['function']][0]})")
+                name = g.pin_name(old, pin)
+                dropped.append(f"{pin}{' ' + name if name != pin else ''} "
+                               f"({g.FUNCTIONS.get(e['function'], ('?',))[0]})")
+        if dropped:
+            r = QMessageBox.question(self, "Change chip",
+                                     f"The {device} can't do this, so these pins would be cleared:\n\n"
+                                     + "\n".join(dropped) + f"\n\nSwitch to the {device} anyway?",
+                                     QMessageBox.Yes | QMessageBox.Cancel, QMessageBox.Cancel)
+            if r != QMessageBox.Yes:
+                self.refresh()          # puts the old chip back in the list
+                return
         if "PA4" not in old["pins"]:
             new["pins"].pop("PA4", None)
         new["pwm"] = {k: v for k, v in old["pwm"].items()}
@@ -824,9 +922,6 @@ class ConfiguratorWindow(QMainWindow):
             if pkg["label"].startswith(old_type):
                 new["package"] = pkg["parts"][0]
         self.cfg = new
-        if dropped:
-            QMessageBox.information(self, "Chip changed", f"{device} can't do this, so these pins were cleared:\n"
-                                    + "\n".join(dropped))
         self.changed()
 
     def change_package(self):
@@ -837,9 +932,11 @@ class ConfiguratorWindow(QMainWindow):
 
     # ----- generate ---------------------------------------------------------------
     def generate(self):
+        """Write everything; returns False (and writes nothing) while there are errors."""
         errors, _ = g.check(self.cfg, self.f_cpu, self.vdd)
         if errors:
-            return
+            self.statusBar().showMessage("Can't generate yet: " + errors[0], 8000)
+            return False
         p = self.project
         g.save_config(p, self.cfg)
         mk = os.path.join(p, "Makefile")
@@ -854,25 +951,48 @@ class ConfiguratorWindow(QMainWindow):
         files = g.write_generated(p, self.cfg, self.f_cpu, self.vdd)
         hooked = g.hook_main(p)
         self.dirty = False
+        self.setWindowModified(False)
         msg = [f"Wrote {', '.join(files)} and padauk.json, updated the Makefile."]
         if hooked:
             msg.append("main.c: " + "; ".join(hooked) + " (backup: main.c.bak)")
         elif hooked is None:
             msg.append("No main.c found: call pdk_init() at startup and pdk_irq() in your interrupt handler.")
+        else:
+            with open(os.path.join(p, "main.c")) as f:
+                main_c = f.read()
+            missing = [x for x in ('#include "pdk_init.h"', "pdk_init()", "pdk_irq()") if x not in main_c]
+            if missing:
+                msg.append(f"main.c: couldn't add {', '.join(missing)} automatically, please add it yourself "
+                           "(pdk_init() at startup, pdk_irq() in the interrupt handler).")
+        usage = g.usage(self.cfg)
         self.statusBar().showMessage("  ".join(msg), 15000)
-        self.generated.emit(" ".join(msg))
-        QMessageBox.information(self, "Code generated", "\n\n".join(msg) +
-                                "\n\nUse the pin names in your code, e.g. LED_high(), BUTTON_read().")
+        self.generated.emit(" ".join(msg) + ("\nIn your code: " + "; ".join(usage) if usage else ""))
+        QMessageBox.information(self, "Code generated", "\n\n".join(msg) + (
+            "\n\nIn your code you can now use:\n" + "\n".join("  " + u for u in usage) +
+            "\n\n(all listed in pdk_init.h)" if usage else ""))
+        return True
 
     def closeEvent(self, event):
         if self.dirty:
-            r = QMessageBox.question(self, "Unsaved changes", "Generate code before closing?",
-                                     QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel)
-            if r == QMessageBox.Cancel:
-                event.ignore()
+            box = QMessageBox(QMessageBox.Question, "Unsaved changes",
+                              "Generate code before closing?\n\n"
+                              "Your changes are only saved (in padauk.json) when you generate.", parent=self)
+            gen = box.addButton("Generate", QMessageBox.AcceptRole)
+            discard = box.addButton("Discard changes", QMessageBox.DestructiveRole)
+            box.addButton(QMessageBox.Cancel)
+            box.setDefaultButton(gen)
+            box.exec_()
+            if box.clickedButton() == gen:
+                if not self.generate():
+                    errors, _ = g.check(self.cfg, self.f_cpu, self.vdd)
+                    QMessageBox.warning(self, "Can't generate yet",
+                                        "Fix these first (or close and discard the changes):\n\n"
+                                        + "\n".join(errors))
+                    event.ignore()
+                    return
+            elif box.clickedButton() != discard:
+                event.ignore()          # Cancel, or the dialog was closed
                 return
-            if r == QMessageBox.Yes:
-                self.generate()
         event.accept()
 
 
