@@ -104,6 +104,8 @@ buttons in the status bar. For `pdk new` to open VS Code by itself, run
 *Shell Command: Install 'code' command in PATH* from the command palette
 (macOS); on Linux and Windows the installer does this.
 
+GUI (optional): `pip install PyQt5`, then `pdk gui`.
+
 ### Windows
 
 The tasks and `pdk` call `make`, so install [MSYS2](https://www.msys2.org)

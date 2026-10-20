@@ -8,6 +8,7 @@ pdk - Padauk project helper (SDCC + Easy PDK programmer).
   pdk flash -m                      write, then monitor
   pdk set device=PMS150C clock=1M vdd=3.3
   pdk doctor                        check SDCC, easypdkprog and the programmer
+  pdk gui                           graphical interface (needs PyQt5)
 
 Run inside a project folder (or any subfolder). `pdk help <command>` for details.
 Only needs Python 3.8+ and make; everything else is done by the project's Makefile.
@@ -100,8 +101,8 @@ def find_project(start=None):
         path = parent
 
 
-def require_project():
-    project = find_project()
+def require_project(a=None):
+    project = getattr(a, "project", None) or find_project()
     if not project:
         die("not inside a Padauk project. Create one with: pdk new <name>")
     return project
@@ -292,7 +293,7 @@ def cmd_device(a):
 
 
 def cmd_config(a):
-    project = require_project()
+    project = require_project(a)
     s = project_settings(project)
     devices = load_devices(os.path.join(project, "Makefile"))
     arch, rom, ram, mem = devices.get(s["DEVICE"], ("?", 0, 0, "?"))
@@ -341,7 +342,7 @@ def version_tuple(text):
 
 def cmd_doctor(a):
     problems = 0
-    project = find_project()
+    project = getattr(a, "project", None) or find_project()
     device = project_settings(project)["DEVICE"] if project else None
 
     print("Toolchain")
@@ -430,7 +431,7 @@ def cmd_doctor(a):
 
 def cmd_upgrade(a):
     """Refresh include/, .vscode/ and the Makefile from the template, keeping your settings and code."""
-    project = require_project()
+    project = require_project(a)
     if os.path.realpath(project) == os.path.realpath(TEMPLATE):
         die("this is the template itself")
     old = project_settings(project)
@@ -467,6 +468,16 @@ def cmd_upgrade(a):
     info("updated: Makefile (settings kept), include/, .vscode/")
     info(f"backup:  {os.path.relpath(backup, project)}")
     info("your main.c, board.h and src/ were not touched")
+
+
+def cmd_gui(a):
+    gui = os.path.join(REPO, "PadaukBuilder", "Padauk Tools.py")
+    try:
+        import PyQt5  # noqa: F401
+    except ImportError:
+        die("the GUI needs PyQt5:  pip install PyQt5")
+    project = find_project()
+    sys.exit(subprocess.call([sys.executable, gui] + ([project] if project else [])))
 
 
 def cmd_install(a):
@@ -536,6 +547,8 @@ def main():
 
     sub.add_parser("upgrade", help="refresh include/, .vscode/ and Makefile from the template (keeps settings)") \
         .set_defaults(func=cmd_upgrade)
+
+    sub.add_parser("gui", help="open the graphical interface (needs PyQt5)").set_defaults(func=cmd_gui)
 
     s = sub.add_parser("install", help="put 'pdk' on your PATH (symlink in ~/.local/bin)")
     s.add_argument("--bindir", default="~/.local/bin")

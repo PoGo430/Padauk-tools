@@ -24,3 +24,6 @@ __pycache__/
 *.layout
 *.depend
 *.swp
+PadaukBuilder/build/
+PadaukBuilder/dist/
+*.spec

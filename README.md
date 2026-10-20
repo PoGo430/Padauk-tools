@@ -45,6 +45,22 @@ pdk new hello -d PMS150C -e serial_hello    # start from an example (pdk example
 - SDCC-specific syntax (`__sfr`, `__at()`, `__interrupt()`, inline asm) is
   handled, so the headers don't light up red.
 
+## GUI
+
+Prefer buttons? `pdk gui` (needs `pip install PyQt5`) opens the Padauk Tools
+window on the current project:
+
+- **New / Open** projects (pick the chip and a starting example)
+- chip, clock and supply voltage dropdowns, saved straight to the Makefile
+- **Build**, **Flash**, **Flash + Monitor**, **Monitor**, **Stop**, plus Probe, Erase, Clean
+- ROM/RAM bars after each build, colored errors (double-click one to open the file)
+- **Doctor** checks your setup, **Upgrade** refreshes the project from the template
+- asks before writing a one-time-programmable chip
+- shortcuts: Ctrl+B build, Ctrl+U flash, Ctrl+M monitor, Esc stop
+
+It uses the same project files as VS Code and `pdk`, so you can mix them.
+For a standalone executable: `python3 PadaukBuilder/build_executables.py`.
+
 ## In the terminal
 
 Run these anywhere inside a project folder:
@@ -96,6 +112,7 @@ include/       free-pdk headers + delay.h, millis.h, serial.h
 
 ```
 pdk            the command-line tool (Python 3, no extra packages)
+PadaukBuilder/ the GUI (pdk gui)
 template/      what `pdk new` copies
 examples/      blink_irq, button_led, serial_hello, button_serial
 docs/          setup.md (install), chips.md (PFS154 / PFS122 / PMS150C notes)

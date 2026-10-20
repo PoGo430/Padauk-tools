@@ -27,6 +27,14 @@ jobs:
           grep -q "define F_CPU 4000000" .vscode/pdk_config.h
           $GITHUB_WORKSPACE/pdk upgrade
           $GITHUB_WORKSPACE/pdk build
+      - name: GUI starts
+        run: |
+          pip install PyQt5
+          QT_QPA_PLATFORM=offscreen python3 -c "
+          import importlib.util, sys
+          spec = importlib.util.spec_from_file_location('gui', 'PadaukBuilder/Padauk Tools.py')
+          g = importlib.util.module_from_spec(spec); spec.loader.exec_module(g)
+          app = g.QApplication(sys.argv); w = g.MainWindow('/tmp/ci-proj'); print('GUI ok:', w.project)"
       - name: VS Code JSON files are valid
         run: |
           for f in template/.vscode/*.json; do
