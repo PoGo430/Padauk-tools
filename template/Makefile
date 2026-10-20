@@ -150,7 +150,7 @@ size: build
 	    if (words > rom) { printf "  ERROR: program does not fit in ROM (%d words too big)!\n", words - rom; exit 1 } \
 	    if (ramtop >= ram) { print "  ERROR: no RAM left for the stack!"; exit 1 } \
 	    if (ram - ramtop < 8) print "  WARNING: less than 8 bytes left for the stack.\n"; \
-	    if (fcpu + 0 > 8000000) print "  WARNING: F_CPU above 8 MHz is beyond the usual datasheet rating (check yours).\n" \
+	    if (fcpu + 0 > 8000000) print "  WARNING: 16 MHz is undocumented: only stable with VDD close to 5 V (4 V LVR is set at startup).\n" \
 	  }' $(OUTPUT).ihx
 
 # OTP chips can only be written once: ask first (only in an interactive

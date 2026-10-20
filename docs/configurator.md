@@ -44,6 +44,7 @@ status bar button, or the *Padauk: Pin configurator* task).
 | Comparator | + PA4, - PA3/PA4/PA6/PA7, out PA0 | + PA4, - PA3/PA4/PB6/PB7, out PA0 | same as PFS154 |
 | ADC | - | - | PA0, PA3, PA4, PB0-PB7 |
 | Serial TX (debug) | PA7 | PA7 | PA7 |
+| RC sensor (RFC, undocumented) | - | PA0, PA3, PA4, PB0-PB4, PB6, PB7 | - |
 
 ## Using the generated code
 
@@ -68,7 +69,7 @@ static void loop(void)
   }
   FAN_set_duty(128);               // PWM pin named FAN (Timer3 here: Serial TX uses Timer2)
   if (SWITCH_read()) { ... }       // input pin named SWITCH
-  uint8_t v = POT_read();          // ADC pin named POT (PFS122/PFS172)
+  uint16_t v = POT_read();         // ADC pin named POT: 0..4095 on the PFS122, 0..255 on the PFS172
   serial_print_uint(v);            // with Serial TX on PA7; see it with `pdk monitor`
   serial_println("");              // (printf() needs more RAM than these chips have)
 }
@@ -84,28 +85,32 @@ Change things in the configurator, or run `pdk generate` after editing
 
 ## Where the data comes from, and what's unverified
 
-The Padauk datasheet site couldn't be reached while building this, so the
-tool uses the free-pdk project's data, which was compiled from those
-datasheets:
-
 - **Pinouts and pin functions:** the data behind the interactive pinout
   diagrams on free-pdk.github.io/chips
-  ([@cmfcmf/pinout-diagrams](https://www.npmjs.com/package/@cmfcmf/pinout-diagrams), MIT).
+  ([@cmfcmf/pinout-diagrams](https://www.npmjs.com/package/@cmfcmf/pinout-diagrams), MIT),
+  compiled from the Padauk datasheets.
+- **PFS122:** checked against its own datasheet (V004, 2025-09-02): pinouts
+  for all packages including QFN16, pin functions, 12-bit ADC registers, LVR
+  levels, clock limits, PWM and comparator formulas. See
+  [chips.md](chips.md#pfs122).
 - **Registers and bit values:** the free-pdk `pdk-includes` headers
   (`include/pdk/device/...`). The generated code only uses their macro names.
 
-Check these against your datasheet:
+Still worth checking:
 
-- **PFS122:** free-pdk has no separate pinout for it, so the PFS172 pinout is
-  used (same chip ID). The ADC code uses the PFS172's 8-bit ADC registers;
-  the PFS122 has a 12-bit ADC.
+- **PFS122 code options** (interrupt pin choice, LVR level, comparator edge)
+  are written to registers documented for the PFS172 but not in the PFS122
+  datasheet (same chip ID).
 - **PFS154 11-bit PWM frequency:** computed as
   16 MHz / (prescaler x scaler x (upper bound/2 + 1)). Measure it if the exact
   frequency matters.
-- **Comparator internal reference:** you pick a range (1-4) and a level
-  (0-15). The resulting voltage is listed in the comparator chapter of the
-  datasheet.
+- **Comparator internal reference:** the voltage shown uses the formulas from
+  the PFS122 datasheet (range 1: VDD/4 + (n+1)/32 VDD, range 2: (n+1)/24 VDD,
+  range 3: VDD/5 + (n+1)/40 VDD, range 4: (n+1)/32 VDD). The PFS154 and
+  PMS150C use the same comparator design, but check their datasheets.
 - **Watchdog times** are approximate (they run from the ~55-60 kHz ILRC).
+- Timer2/Timer3 PWM frequency and duty match the PFS122 datasheet formulas
+  (f = clock / (256 x prescaler x (scaler+1)), duty = (TMxB+1)/256).
 
 Every combination is compile-tested: `tools/test-configurator.py` generates
 random valid setups for each chip and builds them with SDCC (also run in CI).

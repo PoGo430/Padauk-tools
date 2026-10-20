@@ -9,7 +9,14 @@
 
 // AUTO_INIT_SYSCLOCK()
 #if (F_CPU > 12000000)
-  #define AUTO_INIT_SYSCLOCK()    PDK_SET_SYSCLOCK(SYSCLOCK_IHRC_16MHZ)
+  // 16 MHz is undocumented (free-pdk.github.io/undocumented-features): it is only stable with VDD
+  // close to 5 V, so turn on the 4 V low-voltage reset *before* switching up. Chips without a
+  // MISCLVR register (PMS150C) set LVR with a fuse instead: use FUSE_LVR_4V.
+  #if defined(MISCLVR_4V)
+    #define AUTO_INIT_SYSCLOCK()  do { MISCLVR = (uint8_t)MISCLVR_4V; PDK_SET_SYSCLOCK(SYSCLOCK_IHRC_16MHZ); } while (0)
+  #else
+    #define AUTO_INIT_SYSCLOCK()  PDK_SET_SYSCLOCK(SYSCLOCK_IHRC_16MHZ)
+  #endif
 #elif (F_CPU > 6000000)
   #define AUTO_INIT_SYSCLOCK()    PDK_SET_SYSCLOCK(SYSCLOCK_IHRC_8MHZ)
 #elif (F_CPU > 3000000)

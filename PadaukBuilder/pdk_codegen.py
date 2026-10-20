@@ -68,6 +68,11 @@ CHIPS = {
         "drive_fuse": [("normal", "FUSE_IO_DRV_NORMAL"), ("low", "FUSE_IO_DRV_LOW")],
         "has_rop": False,
         "misc2": True,
+        # Undocumented resistance/capacitance-to-frequency converter (free-pdk undocumented-features)
+        "rfc": {"PA4": "RFCC_CH_RFC0_PA4", "PA0": "RFCC_CH_RFC1_PA0", "PA3": "RFCC_CH_RFC2_PA3",
+                "PB7": "RFCC_CH_RFC3_PB7", "PB6": "RFCC_CH_RFC4_PB6", "PB4": "RFCC_CH_RFC5_PB4",
+                "PB3": "RFCC_CH_RFC6_PB3", "PB2": "RFCC_CH_RFC7_PB2", "PB1": "RFCC_CH_RFC8_PB1",
+                "PB0": "RFCC_CH_RFC9_PB0"},
     },
     "PFS172": {
         "pinout": "PFS172",
@@ -97,7 +102,38 @@ CHIPS = {
         "misc2": True,
     },
 }
-CHIPS["PFS122"] = dict(CHIPS["PFS172"], pinout="PFS172", pinout_assumed=True, adc_assumed=True)
+# PFS122: from its datasheet (PDK-DS-PFS122-EN V004, 2025-09-02) and include/pdk/device/pfs122.h.
+# Code options (chapter 8: interrupt pin choice, LVR, comparator edge) have no register in the
+# datasheet; pfs122.h maps them to the PFS172-family code-option registers (same chip ID).
+CHIPS["PFS122"] = {
+    "pinout": "PFS122",
+    "otp": False,
+    "ports": ["A", "B"],
+    "pull_down_reg": True,                                   # PAPL/PBPL (6.14, 6.18)
+    "tm2_out": {"PB2": "TM2C_OUT_PB2", "PA3": "TM2C_OUT_PA3", "PB4": "TM2C_OUT_PB4"},   # 6.26
+    "tm3_out": {"PB5": "TM3C_OUT_PB5", "PB6": "TM3C_OUT_PB6", "PB7": "TM3C_OUT_PB7"},   # 6.30
+    "pwmg_out": {},
+    "ints": {                                                # 6.4/6.5, code options Interrupt Src0/Src1
+        "PA0": ("INT0", "PA0", "INTEGS_PA0", "ROP_INT_SRC_PA0"),
+        "PB5": ("INT0", "PB5", "INTEGS_PB5", "ROP_INT_SRC_PB5"),
+        "PB0": ("INT1", "PB0", "INTEGS_PB0", "ROP_INT_SRC_PB0"),
+        "PA4": ("INT1", "PA4", "INTEGS_PA4", "ROP_INT_SRC_PA4"),
+    },
+    "comp_minus": {"PA3": "GPCC_COMP_MINUS_PA3", "PA4": "GPCC_COMP_MINUS_PA4",          # 6.24
+                   "PB6": "GPCC_COMP_MINUS_PB6", "PB7": "GPCC_COMP_MINUS_PB7"},
+    "comp_edge": "MISC2_COMP_EDGE_INT",                      # code option Comparator Edge
+    "adc": {"PB0": "ADCC_CH_AD0_PB0", "PB1": "ADCC_CH_AD1_PB1", "PB2": "ADCC_CH_AD2_PB2",  # 6.19
+            "PB3": "ADCC_CH_AD3_PB3", "PB4": "ADCC_CH_AD4_PB4", "PB5": "ADCC_CH_AD5_PB5",
+            "PB6": "ADCC_CH_AD6_PB6", "PB7": "ADCC_CH_AD7_PB7", "PA3": "ADCC_CH_AD8_PA3",
+            "PA4": "ADCC_CH_AD9_PA4", "PA0": "ADCC_CH_AD10_PA0"},
+    "adc_bits": 12,
+    "lvr": ("MISCLVR_FULL", ["4V", "3V5", "3V", "2V7", "2V5", "2V2", "2V", "1V8"]),    # chapter 8
+    "drive_fuse": [("normal", "FUSE_PB4_PB7_NORMAL"), ("strong (PB4, PB7)", "FUSE_PB4_PB7_STRONG")],
+    "has_rop": True,
+    "misc2": True,
+    "max_clock": [(8_000_000, 3000), (4_000_000, 2200), (2_000_000, 1800)],            # 4.1
+    "code_option_regs": True,
+}
 
 SUPPORTED = ["PFS154", "PFS122", "PMS150C", "PFS172"]
 
@@ -117,6 +153,7 @@ FUNCTIONS = {
     "comp_minus": ("Comparator - input", "COMP-", "analog"),
     "comp_out":   ("Comparator output", "COMP OUT", "analog"),
     "serial_tx":  ("Serial TX (debug, ~115200 baud)", "TX", "serial"),
+    "rfc":        ("RC sensor input (RFC, undocumented)", "RFC", "analog"),
     "reset":      ("Reset input (PRSTB)", "RESET", "system"),
 }
 
@@ -172,6 +209,8 @@ def pin_functions(device, pin):
         funcs.append("comp_out")
     if pin == "PA7":
         funcs.append("serial_tx")
+    if pin in c.get("rfc", {}):
+        funcs.append("rfc")
     if pin == "PA5":
         funcs.append("reset")
     return funcs
@@ -212,6 +251,8 @@ def load_config(project, device=None):
     if os.path.isfile(path):
         with open(path) as f:
             cfg = json.load(f)
+        if cfg.get("device") == "PFS122" and str(cfg.get("package", "")).startswith("PFS172-"):
+            cfg["package"] = "PFS122-" + cfg["package"][len("PFS172-"):]
         base = default_config(cfg.get("device", device or "PFS154"))
         for key, val in cfg.items():          # merge, so new options get defaults
             if isinstance(val, dict) and isinstance(base.get(key), dict) and key not in ("pins", "pwm"):
@@ -289,9 +330,11 @@ def pin_usage(cfg, pin):
     if fn in PWM_FUNCS:
         return f"{n}_set_duty(0..{n}_PWM_MAX)"
     if fn == "adc":
-        return f"{n}_read() (0..255)"
+        return f"{n}_read() (0..{adc_max(cfg['device'])})"
     if fn == "serial_tx":
         return 'serial_println("text"), serial_print_uint(n), putchar(c)'
+    if fn == "rfc":
+        return f"{n}_start(), then after a fixed time rfc_stop() -> count"
     return ""
 
 
@@ -335,13 +378,22 @@ def resources(cfg):
     out.append(("Comparator", comp or ("on" if cfg["comp"]["enabled"] else None)))
     if c["adc"]:
         out.append(("ADC", users("adc")))
+    if c.get("rfc"):
+        out.append(("RFC", users("rfc")))
     out.append(("Timer16", "millis()" if cfg["system"]["millis"] else None))
     return out
 
 
-def default_lvr(device, vdd_mv):
+def _lvr_mv(level):
+    v, _, frac = level.partition("V")
+    return int(v) * 1000 + (int(frac.ljust(2, "0")) * 10 if frac else 0)
+
+
+def default_lvr(device, vdd_mv, f_cpu=0):
     """Highest LVR level at or below ~80% of VDD."""
     levels = chip(device)["lvr"][1]
+    if f_cpu > 8_000_000 and "4V" in levels:
+        return "4V"        # undocumented 16 MHz needs a high LVR
 
     def mv(level):
         v, _, frac = level.partition("V")
@@ -400,14 +452,28 @@ def check(cfg, f_cpu, vdd_mv):
         warnings.append("Serial TX needs the IHRC running; use F_CPU >= 250 kHz")
     if cfg["system"]["millis"] and f_cpu < 250_000:
         warnings.append("millis() needs the IHRC running; use F_CPU >= 250 kHz")
-    if "adc" in funcs and c.get("adc_assumed"):
-        warnings.append("PFS122 ADC: code uses the PFS172 8-bit ADC registers (not verified on the PFS122's 12-bit ADC)")
-    if c.get("pinout_assumed"):
-        warnings.append("PFS122 pinout taken from the PFS172 (same chip); check it against your datasheet")
+    for hz, min_mv in c.get("max_clock", []):        # highest clock first
+        if f_cpu >= hz:
+            if vdd_mv < min_mv:
+                warnings.append(f"Datasheet: {human_freq(hz)} needs VDD >= {min_mv / 1000:.1f} V "
+                                f"(you have {vdd_mv / 1000:.1f} V); lower the clock")
+            break
+    if c.get("code_option_regs") and ("int" in funcs or cfg["system"]["fuses"] or comp_on):
+        warnings.append("PFS122 code options (interrupt pin choice, LVR level, comparator edge) are set "
+                        "through registers the datasheet doesn't list (see include/pdk/device/pfs122.h)")
     if c["otp"]:
         warnings.append(f"{device} is OTP: test on a PFS154 first if you can")
     if f_cpu > 8_000_000:
-        warnings.append("F_CPU above 8 MHz is beyond the usual datasheet rating")
+        warnings.append("16 MHz is undocumented (free-pdk): only stable with VDD close to 5 V; "
+                        "the 4 V low-voltage reset is switched on at startup")
+        if vdd_mv < 4500:
+            warnings.append(f"16 MHz at {vdd_mv / 1000:.1f} V will probably crash: use 8 MHz or less")
+        lv = cfg["system"]["lvr"]
+        if lv and _lvr_mv(lv) < 4000:
+            warnings.append(f"LVR {lv} is too low for 16 MHz: choose 4V (or Auto)")
+    if "rfc" in funcs:
+        warnings.append("RFC is an undocumented PFS154 feature (free-pdk): it may behave differently "
+                        "between chips. C-type mode: one resistor + capacitor per sensor pin")
     if cfg["system"]["security"]:
         warnings.append("Security fuse ON: the chip can't be read back (easypdkprog needs --allowsecfuse)")
     return errors, warnings
@@ -452,6 +518,17 @@ def pwmg_settings(freq):
         return None
     _, pre_name, scale, counts, f = best
     return {"prescale": pre_name, "scale": scale, "cub": 2 * counts - 1, "freq": f}
+
+
+def adc_max(device):
+    return (1 << chip(device).get("adc_bits", 8)) - 1
+
+
+def comp_reference(rng, level, vdd_mv):
+    """Internal comparator reference in mV (PFS122 datasheet 5.5.1; same ladder on the other chips)."""
+    n = int(level) + 1
+    frac = {1: 1 / 4 + n / 32, 2: n / 24, 3: 1 / 5 + n / 40, 4: n / 32}[int(rng)]
+    return frac * vdd_mv
 
 
 def adc_divider(f_cpu, max_khz):
@@ -537,6 +614,9 @@ def generate(cfg, f_cpu, vdd_mv):
         if fn == "adc":
             h.append(f"#define {name}_ADC          {c['adc'][pin]}")
             h.append(f"#define {name}_read()       adc_read({c['adc'][pin]})")
+        if fn == "rfc":
+            h.append(f"#define {name}_RFC          {c['rfc'][pin]}")
+            h.append(f"#define {name}_start()      rfc_start({c['rfc'][pin]})   // then wait, then rfc_stop()")
         if fn == "serial_tx":
             h.append("// Serial TX on PA7: serial_println(\"text\"), putchar(c), serial_print_uint(n).")
             h.append("// (printf() needs more RAM than these chips have.)")
@@ -560,7 +640,17 @@ def generate(cfg, f_cpu, vdd_mv):
     if "comp" in uses_irq:
         h.append("extern volatile uint8_t pdk_comp_flag;")
     if "adc" in by_func:
-        h.append("uint8_t adc_read(uint8_t channel);   // 8-bit result, channel = <NAME>_ADC")
+        if c.get("adc_bits", 8) == 12:
+            h.append("uint16_t adc_read(uint8_t channel);  // 12-bit result 0..4095 (VDD = 4096), channel = <NAME>_ADC")
+            h.append("#define ADC_MAX  4095")
+        else:
+            h.append("uint8_t adc_read(uint8_t channel);   // 8-bit result 0..255, channel = <NAME>_ADC")
+            h.append("#define ADC_MAX  255")
+    if "rfc" in by_func:
+        h += ["// RFC (undocumented, PFS154): counts RC oscillations on the selected pin while running.",
+              "void rfc_start(uint8_t channel);   // channel = <NAME>_RFC",
+              "uint16_t rfc_stop(void);           // stop and return the count (compare it, e.g. touch vs no touch)",
+              "#define rfc_overflow()  (RFCC & RFCC_OVERFLOW)"]
     if sysc["millis"]:
         h.append("uint32_t millis(void);   // milliseconds since start (Timer16)")
     if "serial_tx" in by_func:
@@ -590,7 +680,7 @@ def generate(cfg, f_cpu, vdd_mv):
         parts = ["FUSE_SECURITY_ON" if sysc["security"] else "FUSE_SECURITY_OFF",
                  dict(c["drive_fuse"]).get(sysc["drive"], c["drive_fuse"][0][1]),
                  "FUSE_BOOTUP_FAST" if sysc["bootup"] == "fast" else "FUSE_BOOTUP_SLOW"]
-        lvr = sysc["lvr"] or default_lvr(device, vdd_mv)
+        lvr = sysc["lvr"] or default_lvr(device, vdd_mv, f_cpu)
         if c["lvr"][0] == "fuse":
             parts.append(f"FUSE_LVR_{lvr}")
         s += ["  // Fuses (stored in the last ROM word when the chip is written)",
@@ -599,10 +689,10 @@ def generate(cfg, f_cpu, vdd_mv):
     # ---- system
     s.append("  // System")
     if c["lvr"][0] == "MISCLVR":
-        lvr = sysc["lvr"] or default_lvr(device, vdd_mv)
+        lvr = sysc["lvr"] or default_lvr(device, vdd_mv, f_cpu)
         s.append(f"  MISCLVR = MISCLVR_{lvr};                 // low voltage reset level")
     elif c["lvr"][0] == "MISCLVR_FULL":
-        lvr = sysc["lvr"] or default_lvr(device, vdd_mv)
+        lvr = sysc["lvr"] or default_lvr(device, vdd_mv, f_cpu)
         s.append(f"  MISCLVR = (uint8_t)(MISCLVR_BANDGAP_ON | MISCLVR_{lvr});   // low voltage reset level")
     wdt = sysc["watchdog"]
     if wdt == "off":
@@ -659,6 +749,8 @@ def generate(cfg, f_cpu, vdd_mv):
                     pu |= m
                 elif pull == "down":
                     pd |= m
+            if fn == "rfc":
+                dier |= m          # RFC sensor pin: input, no pull (digital input left at its reset default)
             if p in analog:
                 notes.append(f"{p} analog")
         s.append(f"  // Port {P}" + (f" ({', '.join(notes)}: digital input off)" if notes else ""))
@@ -799,7 +891,26 @@ def generate(cfg, f_cpu, vdd_mv):
               "  while (i)",
               "    putchar(buf[--i]);",
               "}", ""]
-    if "adc" in by_func:
+    if "rfc" in by_func:
+        s += ["// RFC, C-type mode: each sensor pin has its own resistor + capacitor",
+              "// (archived Padauk datasheet, linked from free-pdk.github.io/undocumented-features)",
+              "static uint8_t pdk_rfc_channel;", "",
+              "void rfc_start(uint8_t channel)", "{",
+              "  pdk_rfc_channel = channel;",
+              "  RFCC = (uint8_t)(channel | RFCC_MODE_C_TYPE | RFCC_START);", "}", "",
+              "uint16_t rfc_stop(void)", "{",
+              "  uint8_t lo;",
+              "  RFCC = (uint8_t)(pdk_rfc_channel | RFCC_MODE_C_TYPE);   // start bit 0 = stop counting",
+              "  lo = RFCCRL;",
+              "  return (uint16_t)((uint16_t)RFCCRH << 8) | lo;", "}", ""]
+    if "adc" in by_func and c.get("adc_bits", 8) == 12:
+        s += ["uint16_t adc_read(uint8_t channel)", "{",
+              "  ADCC = (uint8_t)(ADCC_ADC_ENABLE | channel);",
+              "  ADCC |= ADCC_START_ADC_CONV;",
+              "  while (!(ADCC & ADCC_IS_ADC_CONV_READY))",
+              "    ;",
+              "  return ADC_RESULT_12BIT();   // ADCRH bits 11..4, ADCRL bits 3..0 (datasheet 6.21, 6.22)", "}", ""]
+    elif "adc" in by_func:
         s += ["uint8_t adc_read(uint8_t channel)", "{",
               "  ADCC = (uint8_t)(ADCC_ADC_ENABLE | channel);",
               "  ADCC |= ADCC_START_ADC_CONV;",

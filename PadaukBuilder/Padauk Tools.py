@@ -54,7 +54,7 @@ def load_pdk():
 pdk = load_pdk()
 
 CLOCKS = [("8 MHz", "8000000"), ("4 MHz", "4000000"), ("2 MHz", "2000000"), ("1 MHz", "1000000"),
-          ("500 kHz", "500000"), ("250 kHz", "250000"), ("16 MHz (overclocked)", "16000000")]
+          ("500 kHz", "500000"), ("250 kHz", "250000"), ("16 MHz (undocumented, ~5 V only)", "16000000")]
 VOLTAGES = [("5.0 V", "5000"), ("4.0 V", "4000"), ("3.3 V", "3300"), ("3.0 V", "3000"), ("2.5 V", "2500")]
 
 USE_SETSID = os.name == "posix" and shutil.which("setsid") is not None
@@ -496,7 +496,7 @@ class MainWindow(QMainWindow):
         name = self.device.currentData()
         notes = []
         if name in pdk.DEV_BRANCH_ONLY:
-            notes.append("needs development easypdkprog (docs/setup.md)")
+            notes.append("needs easypdkprog with " + name + " support: " + pdk.prog_hint(name).split(" (")[0])
         if self.devices.get(name, ("", 0, 0, ""))[3] == "otp":
             notes.append("one-time programmable")
         self.device_note.setText(", ".join(notes))

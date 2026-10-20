@@ -35,7 +35,9 @@
   #include "device/pfc161.h"
 #elif defined(PFS154)
   #include "device/pfs154.h"
-#elif defined(PFS172) || defined(PFS122) || defined(PFS121)
+#elif defined(PFS122)
+  #include "device/pfs122.h"     // Padauk-tools: from the PFS122 datasheet
+#elif defined(PFS172) || defined(PFS121)
   #include "device/pfs172.h"
 #elif defined(PFS173) || defined(PFS123)
   #include "device/pfs173.h"
