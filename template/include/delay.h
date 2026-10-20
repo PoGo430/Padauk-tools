@@ -33,6 +33,7 @@
 // 3 cycles per loop, 7 cycles overhead
 void _delay_loop_8(uint8_t loop_ctr) {
   loop_ctr; // Ignore unreferenced function argument warning
+#if defined(__SDCC)
 __asm
   // mov    a, #(loop_ctr)                ; 1 cycle
   // mov    __delay_loop_8_PARM_1, a      ; 1 cycle
@@ -42,11 +43,13 @@ __asm
     goto 00001$                           ;   2 cycles
   // ret                                  ; 2 cycles
 __endasm;
+#endif
 }
 
 // 8 cycles per loop, 9 cycles overhead
 void _delay_loop_16(uint16_t loop_ctr) {
   loop_ctr; // Ignore unreferenced function argument warning
+#if defined(__SDCC)
 __asm
   // mov    a, #(loop_ctr)                ; 1 cycle
   // mov    __delay_loop_16_PARM_1+0, a   ; 1 cycle
@@ -63,11 +66,13 @@ __asm
     goto 00001$                           ;   2 cycles
   // ret                                  ; 2 cycles
 __endasm;
+#endif
 }
 
 // 12 cycles per loop, 13 cycles overhead
 void _delay_loop_32(uint32_t loop_ctr) {
   loop_ctr; // Ignore unreferenced function argument warning
+#if defined(__SDCC)
 __asm
   // mov    a, #(loop_ctr)                ; 1 cycle
   // mov    __delay_loop_32_PARM_1+0, a   ; 1 cycle
@@ -92,6 +97,7 @@ __asm
     goto 00001$                           ;   2 cycles
   // ret                                  ; 2 cycles
 __endasm;
+#endif
 }
 
 #endif //__DELAY_H__

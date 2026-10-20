@@ -60,8 +60,8 @@ except the ADC should match.
 ## PMS150C
 
 Very cheap, tiny (SOT23-6 / SOP8), and **one-time programmable**: once written,
-it can't be erased or rewritten. `make program` prints a reminder, and the GUI
-asks before writing.
+it can't be erased or rewritten. Flashing (VS Code task, `pdk flash` or
+`make program`) asks for confirmation first.
 
 - pdk13 core: smaller instruction set, 64 bytes RAM. Keep code simple, avoid
   32-bit math and big local arrays.

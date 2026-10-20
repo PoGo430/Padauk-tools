@@ -1,6 +1,6 @@
 /*
- * blink_irq - blink the LED on PA4 using a timer interrupt instead of a
- * busy-wait delay, so the main loop stays free for other work.
+ * blink_irq - blink the LED on PA4 from a timer interrupt (no busy-wait).
+ * The main loop stays free for other work.
  *
  * Uses include/millis.h (timer16 / T16 interrupt, needs the IHRC running,
  * so keep F_CPU >= 250000).

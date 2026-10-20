@@ -1,0 +1,164 @@
+{
+  // Padauk tasks. Ctrl+Shift+B = Build. Everything else: Ctrl+Shift+P > "Tasks: Run Task".
+  // All tasks just call the Makefile, so they behave the same as in a terminal.
+  "version": "2.0.0",
+  "options": { "cwd": "${workspaceFolder}" },
+  "presentation": { "reveal": "always", "panel": "shared", "clear": true, "showReuseMessage": false },
+  "tasks": [
+    {
+      "label": "Padauk: Build",
+      "detail": "Compile and show ROM/RAM usage (make)",
+      "type": "shell",
+      "command": "make",
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": {
+        "owner": "sdcc",
+        "source": "sdcc",
+        "fileLocation": ["relative", "${workspaceFolder}"],
+        "pattern": {
+          "regexp": "^(?!-:)([^:\\s][^:]*):(\\d+):\\s+(error|warning)\\s+\\d+:\\s+(.*)$",
+          "file": 1, "line": 2, "severity": 3, "message": 4
+        }
+      }
+    },
+    {
+      "label": "Padauk: Flash",
+      "detail": "Build and write the chip in the programmer (make program)",
+      "type": "shell",
+      "command": "make program",
+      "problemMatcher": {
+        "owner": "sdcc",
+        "source": "sdcc",
+        "fileLocation": ["relative", "${workspaceFolder}"],
+        "pattern": {
+          "regexp": "^(?!-:)([^:\\s][^:]*):(\\d+):\\s+(error|warning)\\s+\\d+:\\s+(.*)$",
+          "file": 1, "line": 2, "severity": 3, "message": 4
+        }
+      }
+    },
+    {
+      "label": "Padauk: Flash + Monitor",
+      "detail": "Write the chip, then power it and show its serial output (PA7). Ctrl+C to stop.",
+      "type": "shell",
+      "command": "make program run",
+      "problemMatcher": {
+        "owner": "sdcc",
+        "source": "sdcc",
+        "fileLocation": ["relative", "${workspaceFolder}"],
+        "pattern": {
+          "regexp": "^(?!-:)([^:\\s][^:]*):(\\d+):\\s+(error|warning)\\s+\\d+:\\s+(.*)$",
+          "file": 1, "line": 2, "severity": 3, "message": 4
+        }
+      }
+    },
+    {
+      "label": "Padauk: Monitor",
+      "detail": "Power the chip from the programmer and show its serial output (PA7). Ctrl+C to stop.",
+      "type": "shell",
+      "command": "make run",
+      "problemMatcher": []
+    },
+    {
+      "label": "Padauk: Probe",
+      "detail": "Detect the chip in the programmer socket",
+      "type": "shell",
+      "command": "make probe",
+      "problemMatcher": []
+    },
+    {
+      "label": "Padauk: Erase",
+      "detail": "Erase a flash (PFS) chip",
+      "type": "shell",
+      "command": "make erase",
+      "problemMatcher": []
+    },
+    {
+      "label": "Padauk: Clean",
+      "type": "shell",
+      "command": "make clean",
+      "problemMatcher": []
+    },
+    {
+      "label": "Padauk: Show settings",
+      "type": "shell",
+      "command": "make config",
+      "problemMatcher": []
+    },
+    {
+      "label": "Padauk: Select device",
+      "detail": "Pick the chip (saved in the Makefile, IntelliSense follows)",
+      "type": "shell",
+      "command": "make set DEVICE=${input:device}",
+      "problemMatcher": []
+    },
+    {
+      "label": "Padauk: Select clock (F_CPU)",
+      "type": "shell",
+      "command": "make set F_CPU=${input:fcpu}",
+      "problemMatcher": []
+    },
+    {
+      "label": "Padauk: Select supply voltage",
+      "detail": "Voltage your circuit runs at; the clock is calibrated for it",
+      "type": "shell",
+      "command": "make set TARGET_VDD_MV=${input:vdd}",
+      "problemMatcher": []
+    }
+  ],
+  "inputs": [
+    {
+      "id": "device",
+      "type": "pickString",
+      "description": "Padauk chip",
+      "options": [
+        { "label": "PFS154   - flash, pdk14, 2K ROM, 128B RAM", "value": "PFS154" },
+        { "label": "PFS122   - flash, pdk14, 2K ROM, 128B RAM, 12-bit ADC (dev easypdkprog)", "value": "PFS122" },
+        { "label": "PMS150C  - OTP, pdk13, 1K ROM, 64B RAM", "value": "PMS150C" },
+        { "label": "PFS172", "value": "PFS172" },
+        { "label": "PFS173", "value": "PFS173" },
+        { "label": "PFS121", "value": "PFS121" },
+        { "label": "PFS123", "value": "PFS123" },
+        { "label": "PMS15A", "value": "PMS15A" },
+        { "label": "PMS150G", "value": "PMS150G" },
+        { "label": "PMS15B", "value": "PMS15B" },
+        { "label": "PMS131", "value": "PMS131" },
+        { "label": "PMS152", "value": "PMS152" },
+        { "label": "PMS154B", "value": "PMS154B" },
+        { "label": "PMS154C", "value": "PMS154C" },
+        { "label": "PMS171B", "value": "PMS171B" },
+        { "label": "PFC151", "value": "PFC151" },
+        { "label": "PFC154", "value": "PFC154" },
+        { "label": "PFC161", "value": "PFC161" }
+      ],
+      "default": "PFS154"
+    },
+    {
+      "id": "fcpu",
+      "type": "pickString",
+      "description": "System clock",
+      "options": [
+        { "label": "8 MHz (IHRC/2)", "value": "8000000" },
+        { "label": "4 MHz (IHRC/4)", "value": "4000000" },
+        { "label": "2 MHz (IHRC/8)", "value": "2000000" },
+        { "label": "1 MHz (IHRC/16)", "value": "1000000" },
+        { "label": "500 kHz (IHRC/32)", "value": "500000" },
+        { "label": "250 kHz (IHRC/64)", "value": "250000" },
+        { "label": "16 MHz (IHRC, above datasheet rating)", "value": "16000000" }
+      ],
+      "default": "8000000"
+    },
+    {
+      "id": "vdd",
+      "type": "pickString",
+      "description": "Supply voltage of your circuit",
+      "options": [
+        { "label": "5.0 V", "value": "5000" },
+        { "label": "4.0 V", "value": "4000" },
+        { "label": "3.3 V", "value": "3300" },
+        { "label": "3.0 V", "value": "3000" },
+        { "label": "2.5 V", "value": "2500" }
+      ],
+      "default": "5000"
+    }
+  ]
+}

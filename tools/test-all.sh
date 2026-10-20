@@ -14,9 +14,9 @@ for dev in $DEVICES; do
   for ex in template $(ls "$ROOT/examples"); do
     dir="$WORK/$dev-$ex"
     if [ "$ex" = template ]; then
-      "$ROOT/new-project.sh" "$dir" "$dev" >/dev/null
+      "$ROOT/pdk" new "$dir" -d "$dev" --no-code >/dev/null
     else
-      "$ROOT/new-project.sh" "$dir" "$dev" "$ex" >/dev/null
+      "$ROOT/pdk" new "$dir" -d "$dev" -e "$ex" --no-code >/dev/null
     fi
     if out="$(make -C "$dir" -s 2>&1)"; then
       usage="$(echo "$out" | awk '/ROM:|RAM:/ {printf "%s %s/%s  ", $1, $2, $4}')"

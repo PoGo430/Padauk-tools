@@ -1,0 +1,17 @@
+{
+  "files.associations": { "*.h": "c" },
+  "files.exclude": { ".build": true, ".output": true },
+  "search.exclude": { "include/pdk/**": true },
+  "C_Cpp.default.cStandard": "c11",
+  "C_Cpp.errorSquiggles": "enabled",
+  "editor.tabSize": 2,
+
+  // Status bar buttons (needs the recommended "Task Buttons" extension)
+  "VsCodeTaskButtons.showCounter": false,
+  "VsCodeTaskButtons.tasks": [
+    { "label": "$(tools) Build", "task": "Padauk: Build", "tooltip": "make" },
+    { "label": "$(zap) Flash", "task": "Padauk: Flash", "tooltip": "make program" },
+    { "label": "$(terminal) Monitor", "task": "Padauk: Monitor", "tooltip": "make run (serial output from PA7)" },
+    { "label": "$(chip) Device", "task": "Padauk: Select device", "tooltip": "Pick the chip" }
+  ]
+}
