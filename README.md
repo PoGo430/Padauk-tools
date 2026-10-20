@@ -45,6 +45,20 @@ pdk new hello -d PMS150C -e serial_hello    # start from an example (pdk example
 - SDCC-specific syntax (`__sfr`, `__at()`, `__interrupt()`, inline asm) is
   handled, so the headers don't light up red.
 
+## Pin configurator (CubeMX-style)
+
+```sh
+pdk configure        # or "Configure pins..." in the GUI, or the Pins button in VS Code
+```
+
+Click pins on a drawing of your chip and package to make them outputs,
+inputs, interrupts, PWM, comparator or ADC inputs, or the serial debug
+output. It also covers clock, watchdog, fuses and low-voltage reset.
+**Generate code** writes `pdk_init.c/h` with named helpers (`LED_toggle()`,
+`BUTTON_read()`, `FAN_set_duty(x)`, ...) and hooks them into `main.c`.
+Conflicts, such as two functions needing the same timer, are flagged
+before you generate. See **[docs/configurator.md](docs/configurator.md)**.
+
 ## GUI
 
 Prefer buttons? `pdk gui` (needs `pip install PyQt5`) opens the Padauk Tools
@@ -54,6 +68,7 @@ window on the current project:
 - chip, clock and supply voltage dropdowns, saved straight to the Makefile
 - **Build**, **Flash**, **Flash + Monitor**, **Monitor**, **Stop**, plus Probe, Erase, Clean
 - ROM/RAM bars after each build, colored errors (double-click one to open the file)
+- **Configure pins...** opens the pin configurator
 - **Doctor** checks your setup, **Upgrade** refreshes the project from the template
 - asks before writing a one-time-programmable chip
 - shortcuts: Ctrl+B build, Ctrl+U flash, Ctrl+M monitor, Esc stop
@@ -75,6 +90,7 @@ pdk set device=PMS150C clock=1M vdd=3.3
 pdk device                    # show settings (pdk device PFS122 to change)
 pdk erase | read | clean
 pdk upgrade                   # pull template improvements into an existing project
+pdk configure                 # pin configurator; pdk generate regenerates its code without the GUI
 ```
 
 `pdk` only drives the project's Makefile, so plain `make`, `make program`,
@@ -112,11 +128,11 @@ include/       free-pdk headers + delay.h, millis.h, serial.h
 
 ```
 pdk            the command-line tool (Python 3, no extra packages)
-PadaukBuilder/ the GUI (pdk gui)
+PadaukBuilder/ the GUI (pdk gui) and pin configurator (pdk configure)
 template/      what `pdk new` copies
 examples/      blink_irq, button_led, serial_hello, button_serial
-docs/          setup.md (install), chips.md (PFS154 / PFS122 / PMS150C notes)
-tools/         test-all.sh (build everything), build-easypdkprog-dev.sh
+docs/          setup.md (install), chips.md (chip notes), configurator.md
+tools/         test-all.sh, test-configurator.py (compile-test random pin setups), build-easypdkprog-dev.sh
 ```
 
 `tools/test-all.sh` builds the template and every example for the three

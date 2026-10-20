@@ -183,6 +183,10 @@ class MainWindow(QMainWindow):
             btn = QPushButton(text)
             btn.clicked.connect(slot)
             row.addWidget(btn)
+        self.config_btn = QPushButton("Configure pins...")
+        self.config_btn.setToolTip("Pin and peripheral configurator: click pins, generate init code")
+        self.config_btn.clicked.connect(self.open_configurator)
+        row.addWidget(self.config_btn)
         self.code_btn = QPushButton("Open in VS Code")
         self.code_btn.clicked.connect(self.open_in_code)
         self.code_btn.setVisible(shutil.which("code") is not None)
@@ -269,7 +273,8 @@ class MainWindow(QMainWindow):
         self.project = path
         has = bool(path)
         self.project_label.setText(path or "(no project open)")
-        for w in [b for b in self.action_buttons if b is not self.doctor_btn] + self.settings_widgets + [self.code_btn]:
+        for w in [b for b in self.action_buttons if b is not self.doctor_btn] + self.settings_widgets + \
+                [self.code_btn, self.config_btn]:
             w.setEnabled(has)
         if not has:
             return
@@ -320,6 +325,22 @@ class MainWindow(QMainWindow):
         self.log(text.replace("pdk build", "press Build"), None if ok else "error")
         if ok:
             self.set_project(dest)
+
+    def open_configurator(self):
+        if not self.project:
+            return
+        sys.path.insert(0, os.path.join(resource_dir(), "PadaukBuilder"))
+        sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+        import pdk_configurator
+        self.configurator = pdk_configurator.ConfiguratorWindow(self.project, self)
+        self.configurator.setWindowModality(Qt.WindowModal)
+        self.configurator.generated.connect(self.on_generated)
+        self.configurator.show()
+
+    def on_generated(self, message):
+        self.set_project(self.project)        # chip/clock may have changed
+        self.output.clear()
+        self.log(message + "\n", "good")
 
     def open_in_code(self):
         if self.project:

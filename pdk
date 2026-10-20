@@ -9,6 +9,7 @@ pdk - Padauk project helper (SDCC + Easy PDK programmer).
   pdk set device=PMS150C clock=1M vdd=3.3
   pdk doctor                        check SDCC, easypdkprog and the programmer
   pdk gui                           graphical interface (needs PyQt5)
+  pdk configure                     CubeMX-style pin configurator, generates init code
 
 Run inside a project folder (or any subfolder). `pdk help <command>` for details.
 Only needs Python 3.8+ and make; everything else is done by the project's Makefile.
@@ -480,6 +481,46 @@ def cmd_gui(a):
     sys.exit(subprocess.call([sys.executable, gui] + ([project] if project else [])))
 
 
+def _codegen():
+    sys.path.insert(0, os.path.join(REPO, "PadaukBuilder"))
+    import pdk_codegen
+    return pdk_codegen
+
+
+def cmd_configure(a):
+    project = require_project(a)
+    tool = os.path.join(REPO, "PadaukBuilder", "pdk_configurator.py")
+    try:
+        import PyQt5  # noqa: F401
+    except ImportError:
+        die("the configurator needs PyQt5:  pip install PyQt5")
+    sys.exit(subprocess.call([sys.executable, tool, project]))
+
+
+def cmd_generate(a):
+    """Regenerate pdk_init.c/h from padauk.json (what the configurator saved)."""
+    project = require_project(a)
+    g = _codegen()
+    if not os.path.isfile(os.path.join(project, g.CONFIG_FILE)):
+        die(f"no {g.CONFIG_FILE} in this project yet. Create one with: pdk configure")
+    s = project_settings(project)
+    cfg = g.load_config(project)
+    if cfg["device"] != s["DEVICE"]:
+        warn(f"Makefile DEVICE is {s['DEVICE']} but {g.CONFIG_FILE} is for {cfg['device']}; using {cfg['device']}")
+    errors, warnings = g.check(cfg, int(s["F_CPU"]), int(s["TARGET_VDD_MV"]))
+    for w in warnings:
+        warn(w)
+    if errors:
+        for e in errors:
+            bad(e)
+        sys.exit(1)
+    files = g.write_generated(project, cfg, int(s["F_CPU"]), int(s["TARGET_VDD_MV"]))
+    ok("wrote " + ", ".join(files))
+    hooked = g.hook_main(project)
+    for change in hooked or []:
+        ok("main.c: " + change)
+
+
 def cmd_install(a):
     me = os.path.realpath(__file__)
     if os.name == "nt":
@@ -549,6 +590,9 @@ def main():
         .set_defaults(func=cmd_upgrade)
 
     sub.add_parser("gui", help="open the graphical interface (needs PyQt5)").set_defaults(func=cmd_gui)
+    sub.add_parser("configure", help="pin/peripheral configurator, generates pdk_init.c/h (needs PyQt5)") \
+        .set_defaults(func=cmd_configure)
+    sub.add_parser("generate", help="regenerate pdk_init.c/h from padauk.json (no GUI)").set_defaults(func=cmd_generate)
 
     s = sub.add_parser("install", help="put 'pdk' on your PATH (symlink in ~/.local/bin)")
     s.add_argument("--bindir", default="~/.local/bin")

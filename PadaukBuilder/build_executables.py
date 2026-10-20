@@ -20,6 +20,9 @@ def main():
     subprocess.run([sys.executable, "-m", "pip", "install", "-r", os.path.join(HERE, "requirements.txt")], check=True)
     cmd = [sys.executable, "-m", "PyInstaller", "--onefile", "--windowed", "--noconfirm",
            "--name", "Padauk Tools",
+           "--paths", HERE,
+           "--hidden-import", "pdk_configurator", "--hidden-import", "pdk_codegen",
+           "--hidden-import", "pdk_pinouts",
            *data("pdk", "."), *data("template", "template"), *data("examples", "examples"),
            os.path.join(HERE, "Padauk Tools.py")]
     subprocess.run(cmd, check=True, cwd=HERE)

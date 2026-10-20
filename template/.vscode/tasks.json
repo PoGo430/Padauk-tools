@@ -85,6 +85,20 @@
       "problemMatcher": []
     },
     {
+      "label": "Padauk: Pin configurator",
+      "detail": "CubeMX-style pin setup, generates pdk_init.c/h (needs pdk on PATH and PyQt5)",
+      "type": "shell",
+      "command": "pdk configure",
+      "problemMatcher": []
+    },
+    {
+      "label": "Padauk: Regenerate init code",
+      "detail": "pdk_init.c/h from padauk.json, no GUI",
+      "type": "shell",
+      "command": "pdk generate",
+      "problemMatcher": []
+    },
+    {
       "label": "Padauk: Select device",
       "detail": "Pick the chip (saved in the Makefile, IntelliSense follows)",
       "type": "shell",

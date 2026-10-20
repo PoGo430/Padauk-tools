@@ -27,3 +27,4 @@ __pycache__/
 PadaukBuilder/build/
 PadaukBuilder/dist/
 *.spec
+main.c.bak

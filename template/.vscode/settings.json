@@ -12,6 +12,7 @@
     { "label": "$(tools) Build", "task": "Padauk: Build", "tooltip": "make" },
     { "label": "$(zap) Flash", "task": "Padauk: Flash", "tooltip": "make program" },
     { "label": "$(terminal) Monitor", "task": "Padauk: Monitor", "tooltip": "make run (serial output from PA7)" },
-    { "label": "$(chip) Device", "task": "Padauk: Select device", "tooltip": "Pick the chip" }
+    { "label": "$(chip) Pins", "task": "Padauk: Pin configurator", "tooltip": "Pin configurator" },
+    { "label": "$(settings-gear) Device", "task": "Padauk: Select device", "tooltip": "Pick the chip" }
   ]
 }
