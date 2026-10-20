@@ -1,29 +1,32 @@
-import os
-import platform
-import subprocess
+#!/usr/bin/env python3
+"""Build a single-file 'Padauk Tools' executable with PyInstaller.
 
-def build_executable():
-    # Install requirements if not already installed
-    subprocess.run(['pip', 'install', '-r', 'requirements.txt'])
-    
-    # Base PyInstaller command
-    base_cmd = [
-        'pyinstaller',
-        '--onefile',
-        '--windowed',  # This prevents the terminal window from appearing
-        '--name', 'Padauk Tools',
-        'Padauk Tools.py'
+The template/ and examples/ folders are bundled, so "New project..." works
+from the executable too. Output goes to PadaukBuilder/dist/.
+"""
+import os
+import subprocess
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+REPO = os.path.dirname(HERE)
+
+
+def main():
+    subprocess.run([sys.executable, "-m", "pip", "install", "-r", os.path.join(HERE, "requirements.txt")], check=True)
+    cmd = [
+        sys.executable, "-m", "PyInstaller",
+        "--onefile",
+        "--windowed",
+        "--noconfirm",
+        "--name", "Padauk Tools",
+        "--add-data", os.path.join(REPO, "template") + os.pathsep + "template",
+        "--add-data", os.path.join(REPO, "examples") + os.pathsep + "examples",
+        os.path.join(HERE, "Padauk Tools.py"),
     ]
-    
-    # Add icon if available (you can add an .ico file later)
-    # if os.path.exists('icon.ico'):
-    #     base_cmd.extend(['--icon', 'icon.ico'])
-    
-    # Build the executable
-    subprocess.run(base_cmd)
-    
-    print("\nBuild completed!")
-    print(f"Executable can be found in the 'dist' directory")
+    subprocess.run(cmd, check=True, cwd=HERE)
+    print("\nDone. Executable: " + os.path.join(HERE, "dist", "Padauk Tools"))
+
 
 if __name__ == "__main__":
-    build_executable() 
+    main()

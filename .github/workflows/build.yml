@@ -1,0 +1,22 @@
+name: build
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install SDCC
+        run: sudo apt-get update && sudo apt-get install -y sdcc
+      - name: Build template + examples (PFS154, PFS122, PMS150C)
+        run: tools/test-all.sh
+      - name: Build template for every supported device
+        run: |
+          for d in $(make -s -C template devices | awk 'NR > 1 {print $1}'); do
+            make -s -C template DEVICE=$d build >/dev/null && echo "ok $d" || exit 1
+          done
+      - name: Check GUI script syntax
+        run: python3 -m py_compile "PadaukBuilder/Padauk Tools.py"
