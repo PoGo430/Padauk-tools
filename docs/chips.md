@@ -17,7 +17,7 @@ table. Always check the Padauk datasheet for your exact chip and package.
 | Comparator | yes | yes | yes |
 | ADC | no | 12-bit, 11 channels | no |
 | free-pdk status | Supported | Supported (beta) | Supported |
-| easypdkprog | 1.3 | **1.3 + PFS122** (`tools/build-easypdkprog.sh`) or dev | 1.3 |
+| easypdkprog | 1.3 | **PoGo430 fork 1.4** (`tools/build-easypdkprog.sh`) | 1.3 |
 
 The architecture is picked automatically from `DEVICE` (`make config` shows it).
 
@@ -43,34 +43,36 @@ The PFS122 is the PFS172 core with a 12-bit ADC (the PFS172 has an 8-bit one).
 free-pdk lists it as **beta**: it works with the open tools, but it has been
 tested less than the others.
 
-**Programming:** the official 1.3 release doesn't know the name PFS122.
-`tools/build-easypdkprog.sh` builds 1.3 from
-[PoGo430/easy-pdk-programmer-software](https://github.com/PoGo430/easy-pdk-programmer-software)
-with PFS122 (and PFS121, PFS172B) added as names for the PFS172, the same chip
-ID. It programs them with the 1.3 PFS172 settings and works with the stock 1.3
-programmer firmware. If a PFS122 ever fails verification, the upstream
-development branch (newer write method, needs its firmware) is the fallback:
-see [setup.md](setup.md#option-c-development-branch).
+**Programming:** `tools/build-easypdkprog.sh` builds the
+[PoGo430 fork](https://github.com/PoGo430/easy-pdk-programmer-software) of
+easypdkprog (stable 1.3 code + native PFS122). It writes the PFS122 in the
+datasheet's limited-voltage programming mode (9.1.8, VDD 5.0 V) and needs the
+fork's 1.4 programmer firmware. See [setup.md](setup.md#option-b-pogo430-fork-14-recommended-needed-for-the-pfs122).
+
+**Register header:** `include/pdk/device/pfs122.h`, written from the datasheet's
+register chapter (6). `pdk/device.h` uses it for `DEVICE = PFS122`.
 
 **Checked against the PFS122 datasheet** (V004, 2025-09-02):
 
 - **Pinout:** identical to the PFS172 in every shared package (SOT23-6, SOP8,
   MSOP10/ESSOP10/DFN10, SOP14, SOP16), plus QFN16 (PFS122-1J16A / -2J16A). The
   configurator has all of them.
-- **Registers:** same addresses and bits as `device/pfs172.h` (which
-  `pdk/device.h` uses for `PFS122`), except the ADC result.
+- **Registers:** `device/pfs122.h` defines every register in chapter 6. The
+  shared free-pdk peripheral headers it includes were checked against the
+  datasheet bit for bit; the ADC is defined in the file itself.
 - **12-bit ADC:** `ADCRH` (0x22) holds result bits 11..4, `ADCRL` (0x23) bits
   7..4 hold bits 3..0. The configurator's `adc_read()` returns the full 0..4095
   value on the PFS122. The reference is always VDD; to measure VDD itself, read
   the 1.20 V bandgap channel (`ADCC_CH_AD16_BANDGAP`). The datasheet recommends
   an ADC clock of about 500 kHz (e.g. SYSCLK/16 at 8 MHz).
 - **Clock limits:** 8 MHz needs VDD >= 3.0 V, 4 MHz >= 2.2 V, 2 MHz >= 1.8 V.
-- **Code options:** interrupt pin choice (PA0/PB5, PB0/PA4), LVR level (8
-  levels, 1.8-4.0 V), comparator interrupt edge and PWM options are listed as
-  "code options". Like on the PFS172, free-pdk sets these through registers
-  (`ROP`, `MISCLVR`, `MISC2`) that the datasheet doesn't document; the
-  generated code uses them the same way. This is the one part that's still
-  unverified.
+- **Code options** (chapter 8): interrupt pin choice (PA0/PB5, PB0/PA4), LVR
+  level (8 levels, 1.8-4.0 V), comparator interrupt edge and PWM options. The
+  datasheet says they're chosen at compile time in Padauk's IDE but doesn't say
+  which registers hold them. `pfs122.h` uses the code-option registers free-pdk
+  documented for the PFS172 (`ROP`, `MISCLVR`, `MISC2`; same chip ID), in a
+  clearly marked section. This, and the oscillator trim registers that
+  calibration needs, are the only parts not taken from the PFS122 datasheet.
 - Fuses: `FUSE_SECURITY_ON/OFF`, `FUSE_PB4_PB7_NORMAL/STRONG`, `FUSE_BOOTUP_SLOW/FAST`.
 
 ## PMS150C

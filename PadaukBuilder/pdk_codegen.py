@@ -102,13 +102,38 @@ CHIPS = {
         "misc2": True,
     },
 }
-# PFS122: checked against its datasheet (V004, 2025-09-02). Same registers and pins as the PFS172,
-# except a 12-bit ADC (ADCRH 0x22 = bits 11..4, ADCRL 0x23 bits 7..4 = bits 3..0) and 8 LVR levels.
-# Interrupt pin choice, LVR and comparator edge are "code options" there; like on the PFS172 they are
-# written to the undocumented ROP / MISCLVR / MISC2 registers (free-pdk), which the datasheet doesn't list.
-CHIPS["PFS122"] = dict(CHIPS["PFS172"], pinout="PFS122", adc_bits=12, hidden_code_option_regs=True,
-                       lvr=("MISCLVR_FULL", ["4V", "3V5", "3V", "2V7", "2V5", "2V2", "2V", "1V8"]),
-                       max_clock=[(8_000_000, 3000), (4_000_000, 2200), (2_000_000, 1800)])
+# PFS122: from its datasheet (PDK-DS-PFS122-EN V004, 2025-09-02) and include/pdk/device/pfs122.h.
+# Code options (chapter 8: interrupt pin choice, LVR, comparator edge) have no register in the
+# datasheet; pfs122.h maps them to the PFS172-family code-option registers (same chip ID).
+CHIPS["PFS122"] = {
+    "pinout": "PFS122",
+    "otp": False,
+    "ports": ["A", "B"],
+    "pull_down_reg": True,                                   # PAPL/PBPL (6.14, 6.18)
+    "tm2_out": {"PB2": "TM2C_OUT_PB2", "PA3": "TM2C_OUT_PA3", "PB4": "TM2C_OUT_PB4"},   # 6.26
+    "tm3_out": {"PB5": "TM3C_OUT_PB5", "PB6": "TM3C_OUT_PB6", "PB7": "TM3C_OUT_PB7"},   # 6.30
+    "pwmg_out": {},
+    "ints": {                                                # 6.4/6.5, code options Interrupt Src0/Src1
+        "PA0": ("INT0", "PA0", "INTEGS_PA0", "ROP_INT_SRC_PA0"),
+        "PB5": ("INT0", "PB5", "INTEGS_PB5", "ROP_INT_SRC_PB5"),
+        "PB0": ("INT1", "PB0", "INTEGS_PB0", "ROP_INT_SRC_PB0"),
+        "PA4": ("INT1", "PA4", "INTEGS_PA4", "ROP_INT_SRC_PA4"),
+    },
+    "comp_minus": {"PA3": "GPCC_COMP_MINUS_PA3", "PA4": "GPCC_COMP_MINUS_PA4",          # 6.24
+                   "PB6": "GPCC_COMP_MINUS_PB6", "PB7": "GPCC_COMP_MINUS_PB7"},
+    "comp_edge": "MISC2_COMP_EDGE_INT",                      # code option Comparator Edge
+    "adc": {"PB0": "ADCC_CH_AD0_PB0", "PB1": "ADCC_CH_AD1_PB1", "PB2": "ADCC_CH_AD2_PB2",  # 6.19
+            "PB3": "ADCC_CH_AD3_PB3", "PB4": "ADCC_CH_AD4_PB4", "PB5": "ADCC_CH_AD5_PB5",
+            "PB6": "ADCC_CH_AD6_PB6", "PB7": "ADCC_CH_AD7_PB7", "PA3": "ADCC_CH_AD8_PA3",
+            "PA4": "ADCC_CH_AD9_PA4", "PA0": "ADCC_CH_AD10_PA0"},
+    "adc_bits": 12,
+    "lvr": ("MISCLVR_FULL", ["4V", "3V5", "3V", "2V7", "2V5", "2V2", "2V", "1V8"]),    # chapter 8
+    "drive_fuse": [("normal", "FUSE_PB4_PB7_NORMAL"), ("strong (PB4, PB7)", "FUSE_PB4_PB7_STRONG")],
+    "has_rop": True,
+    "misc2": True,
+    "max_clock": [(8_000_000, 3000), (4_000_000, 2200), (2_000_000, 1800)],            # 4.1
+    "code_option_regs": True,
+}
 
 SUPPORTED = ["PFS154", "PFS122", "PMS150C", "PFS172"]
 
@@ -433,9 +458,9 @@ def check(cfg, f_cpu, vdd_mv):
                 warnings.append(f"Datasheet: {human_freq(hz)} needs VDD >= {min_mv / 1000:.1f} V "
                                 f"(you have {vdd_mv / 1000:.1f} V); lower the clock")
             break
-    if c.get("hidden_code_option_regs") and ("int" in funcs or cfg["system"]["fuses"] or comp_on):
-        warnings.append("PFS122: interrupt pin choice, LVR level and comparator edge use registers that are "
-                        "documented for the PFS172 but not in the PFS122 datasheet (same chip ID)")
+    if c.get("code_option_regs") and ("int" in funcs or cfg["system"]["fuses"] or comp_on):
+        warnings.append("PFS122 code options (interrupt pin choice, LVR level, comparator edge) are set "
+                        "through registers the datasheet doesn't list (see include/pdk/device/pfs122.h)")
     if c["otp"]:
         warnings.append(f"{device} is OTP: test on a PFS154 first if you can")
     if f_cpu > 8_000_000:
@@ -879,15 +904,12 @@ def generate(cfg, f_cpu, vdd_mv):
               "  lo = RFCCRL;",
               "  return (uint16_t)((uint16_t)RFCCRH << 8) | lo;", "}", ""]
     if "adc" in by_func and c.get("adc_bits", 8) == 12:
-        s += ["// PFS122 12-bit ADC: ADCRH (0x22) = result bits 11..4, ADCRL (0x23) bits 7..4 = result bits 3..0",
-              "__sfr __at(0x23) _pdk_adcrl;",
-              "",
-              "uint16_t adc_read(uint8_t channel)", "{",
+        s += ["uint16_t adc_read(uint8_t channel)", "{",
               "  ADCC = (uint8_t)(ADCC_ADC_ENABLE | channel);",
               "  ADCC |= ADCC_START_ADC_CONV;",
               "  while (!(ADCC & ADCC_IS_ADC_CONV_READY))",
               "    ;",
-              "  return (uint16_t)((uint16_t)ADCR << 4) | (_pdk_adcrl >> 4);   // ADCR = ADCRH", "}", ""]
+              "  return ADC_RESULT_12BIT();   // ADCRH bits 11..4, ADCRL bits 3..0 (datasheet 6.21, 6.22)", "}", ""]
     elif "adc" in by_func:
         s += ["uint8_t adc_read(uint8_t channel)", "{",
               "  ADCC = (uint8_t)(ADCC_ADC_ENABLE | channel);",

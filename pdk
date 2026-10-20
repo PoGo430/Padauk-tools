@@ -28,8 +28,9 @@ REPO = os.path.dirname(os.path.realpath(__file__))
 TEMPLATE = os.path.join(REPO, "template")
 EXAMPLES = os.path.join(REPO, "examples")
 MAIN_CHIPS = ("PFS154", "PFS122", "PMS150C")   # listed first
-# Not in the official 1.3 easypdkprog release. PFS121/PFS122/PFS172B: tools/build-easypdkprog.sh builds
-# 1.3 with them (no firmware update). PFS123/PFS173B: only the upstream development branch.
+# Not in the official 1.3 easypdkprog release. tools/build-easypdkprog.sh builds the PoGo430 fork:
+# PFS122 natively (needs its 1.4 programmer firmware), PFS121/PFS172B as PFS172 names.
+# PFS123/PFS173B: only the upstream development branch.
 DEV_BRANCH_ONLY = ("PFS121", "PFS122", "PFS123", "PFS172B", "PFS173B")
 STABLE_FORK_OK = ("PFS121", "PFS122", "PFS172B")
 
@@ -37,7 +38,8 @@ STABLE_FORK_OK = ("PFS121", "PFS122", "PFS172B")
 def prog_hint(name):
     """How to get an easypdkprog that knows this chip."""
     if name in STABLE_FORK_OK:
-        return "tools/build-easypdkprog.sh (stable 1.3 + PFS122, no firmware update)"
+        return ("tools/build-easypdkprog.sh (stable 1.3 + native PFS122, firmware 1.4)" if name == "PFS122"
+                else "tools/build-easypdkprog.sh (stable 1.3 code, no firmware update)")
     return "tools/build-easypdkprog-dev.sh (development branch + firmware update)"
 
 # ----------------------------------------------------------------------------

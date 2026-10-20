@@ -11,8 +11,9 @@ other chips in the free-pdk headers (`pdk devices`).
 ## Setup (once)
 
 1. Install SDCC, make and easypdkprog: see **[docs/setup.md](docs/setup.md)**.
-   For the **PFS122**, `tools/build-easypdkprog.sh` builds easypdkprog 1.3
-   with PFS122 support (no programmer firmware update needed).
+   For the **PFS122**, `tools/build-easypdkprog.sh` builds easypdkprog with
+   native PFS122 support (stable 1.3 code + PFS122); flash its 1.4 programmer
+   firmware once (see setup.md).
 2. Put the `pdk` command on your PATH and check everything:
    ```sh
    ./pdk install        # symlinks pdk into ~/.local/bin
@@ -133,7 +134,7 @@ template/      what `pdk new` copies
 examples/      blink_irq, button_led, serial_hello, button_serial
 docs/          setup.md (install), chips.md (chip notes), configurator.md
 tools/         test-all.sh, test-configurator.py (compile-test random pin setups),
-               build-easypdkprog.sh (1.3 + PFS122), build-easypdkprog-dev.sh (development branch)
+               build-easypdkprog.sh (stable + native PFS122), build-easypdkprog-dev.sh (development branch)
 ```
 
 `tools/test-all.sh` builds the template and every example for the three
