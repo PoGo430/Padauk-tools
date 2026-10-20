@@ -6,14 +6,14 @@
 # stock 1.3 programmer firmware, so the programmer does NOT need a firmware update.
 #
 #   tools/build-easypdkprog.sh [install-dir]          (default: ~/easy-pdk)
-#   BRANCH=master tools/build-easypdkprog.sh          (once the change is merged there)
+#   BRANCH=<branch> tools/build-easypdkprog.sh        (build another branch of the fork)
 #
 # Linux packages (Debian/Ubuntu):  sudo apt install build-essential git
 set -euo pipefail
 
 DEST="${1:-$HOME/easy-pdk}"
 REPO="${REPO:-https://github.com/PoGo430/easy-pdk-programmer-software.git}"
-BRANCH="${BRANCH:-claude/add-pfs122}"
+BRANCH="${BRANCH:-master}"
 
 if [ -d "$DEST/.git" ]; then
   git -C "$DEST" fetch origin "$BRANCH"
