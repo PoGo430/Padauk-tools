@@ -19,6 +19,7 @@ import difflib
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -27,7 +28,17 @@ REPO = os.path.dirname(os.path.realpath(__file__))
 TEMPLATE = os.path.join(REPO, "template")
 EXAMPLES = os.path.join(REPO, "examples")
 MAIN_CHIPS = ("PFS154", "PFS122", "PMS150C")   # listed first
+# Not in the official 1.3 easypdkprog release. PFS121/PFS122/PFS172B: tools/build-easypdkprog.sh builds
+# 1.3 with them (no firmware update). PFS123/PFS173B: only the upstream development branch.
 DEV_BRANCH_ONLY = ("PFS121", "PFS122", "PFS123", "PFS172B", "PFS173B")
+STABLE_FORK_OK = ("PFS121", "PFS122", "PFS172B")
+
+
+def prog_hint(name):
+    """How to get an easypdkprog that knows this chip."""
+    if name in STABLE_FORK_OK:
+        return "tools/build-easypdkprog.sh (stable 1.3 + PFS122, no firmware update)"
+    return "tools/build-easypdkprog-dev.sh (development branch + firmware update)"
 
 # ----------------------------------------------------------------------------
 # Output helpers
@@ -255,7 +266,7 @@ def cmd_new(a):
     info(f"{device}: {arch}, {rom} words ROM, {ram} bytes RAM, {'flash' if mem == 'mtp' else 'OTP (write once!)'}"
          + (f", example: {a.example}" if a.example else ""))
     if device in DEV_BRANCH_ONLY:
-        warn(f"{device} needs easypdkprog from the development branch. See docs/setup.md")
+        warn(f"{device} isn't in the official easypdkprog 1.3 release: build one with {prog_hint(device)}")
     shown = os.path.relpath(dest)
     if shown.startswith(".."):
         shown = dest
@@ -319,7 +330,7 @@ def cmd_set(a):
             if value not in devices:
                 unknown_device(value, devices)
             if value in DEV_BRANCH_ONLY:
-                warn(f"{value} needs easypdkprog from the development branch (docs/setup.md)")
+                warn(f"{value} isn't in the official easypdkprog 1.3 release: build one with {prog_hint(value)}")
         elif var == "F_CPU":
             value = parse_frequency(value)
         elif var == "TARGET_VDD_MV":
@@ -367,7 +378,7 @@ def cmd_devices(a):
         arch, rom, ram, mem = devices[name]
         note = []
         if name in DEV_BRANCH_ONLY:
-            note.append("needs dev easypdkprog")
+            note.append("needs " + ("tools/build-easypdkprog.sh" if name in STABLE_FORK_OK else "dev easypdkprog"))
         print(f"  {name:<9}{arch:<7}{rom:>6}{ram:>6}  {'flash' if mem == 'mtp' else 'OTP  '}"
               + (f"   ({', '.join(note)})" if note else ""))
 
@@ -438,7 +449,7 @@ def cmd_doctor(a):
             if name in supported:
                 ok(f"supports {name}")
             elif name in DEV_BRANCH_ONLY:
-                bad(f"does not know {name}: build the development branch with tools/build-easypdkprog-dev.sh")
+                bad(f"does not know {name}: build one with {prog_hint(name)}")
                 problems += 1
             else:
                 warn(f"does not list {name}")
@@ -454,7 +465,7 @@ def cmd_doctor(a):
                 warn("programmer answered, see the message above")
     else:
         bad("easypdkprog not found: https://github.com/free-pdk/easy-pdk-programmer-software/releases "
-            "(PFS122: tools/build-easypdkprog-dev.sh)")
+            "(PFS122: tools/build-easypdkprog.sh)")
         problems += 1
 
     if sys.platform.startswith("linux"):
@@ -679,4 +690,6 @@ def main():
 
 
 if __name__ == "__main__":
+    if hasattr(signal, "SIGPIPE"):
+        signal.signal(signal.SIGPIPE, signal.SIG_DFL)   # quiet exit when piped into head/less
     main()

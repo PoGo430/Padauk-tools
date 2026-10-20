@@ -17,7 +17,7 @@ table. Always check the Padauk datasheet for your exact chip and package.
 | Comparator | yes | yes | yes |
 | ADC | no | 12-bit, 11 channels | no |
 | free-pdk status | Supported | Supported (beta) | Supported |
-| easypdkprog | 1.3 or dev | **dev branch only** | 1.3 or dev |
+| easypdkprog | 1.3 | **1.3 + PFS122** (`tools/build-easypdkprog.sh`) or dev | 1.3 |
 
 The architecture is picked automatically from `DEVICE` (`make config` shows it).
 
@@ -43,14 +43,14 @@ The PFS122 is the PFS172 core with a 12-bit ADC (the PFS172 has an 8-bit one).
 free-pdk lists it as **beta**: it works with the open tools, but it has been
 tested less than the others.
 
-**Programming:** needs easypdkprog from the development branch plus matching
-programmer firmware. See [setup.md](setup.md#option-b-development-branch-needed-for-pfs122).
-With release 1.3 you'll get an "unknown IC" error for `-n PFS122`.
-
-Untested shortcut: in the development branch, PFS122 is only an alias for the
-PFS172 entry (same chip ID). Release 1.3 knows the PFS172, so you could try
-`make probe` and then `make program PROG_ICNAME=PFS172` with 1.3. The dev
-branch is the supported route, though.
+**Programming:** the official 1.3 release doesn't know the name PFS122.
+`tools/build-easypdkprog.sh` builds 1.3 from
+[PoGo430/easy-pdk-programmer-software](https://github.com/PoGo430/easy-pdk-programmer-software)
+with PFS122 (and PFS121, PFS172B) added as names for the PFS172, the same chip
+ID. It programs them with the 1.3 PFS172 settings and works with the stock 1.3
+programmer firmware. If a PFS122 ever fails verification, the upstream
+development branch (newer write method, needs its firmware) is the fallback:
+see [setup.md](setup.md#option-c-development-branch).
 
 **Checked against the PFS122 datasheet** (V004, 2025-09-02):
 

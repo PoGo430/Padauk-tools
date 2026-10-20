@@ -496,7 +496,7 @@ class MainWindow(QMainWindow):
         name = self.device.currentData()
         notes = []
         if name in pdk.DEV_BRANCH_ONLY:
-            notes.append("needs development easypdkprog (docs/setup.md)")
+            notes.append("needs easypdkprog with " + name + " support: " + pdk.prog_hint(name).split(" (")[0])
         if self.devices.get(name, ("", 0, 0, ""))[3] == "otp":
             notes.append("one-time programmable")
         self.device_note.setText(", ".join(notes))

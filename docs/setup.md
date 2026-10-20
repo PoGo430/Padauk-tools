@@ -25,31 +25,43 @@ SDCC 4.2.11+ renamed the startup function (`_sdcc_external_startup` became
 
 ### Which version do I need?
 
-| Chip | easypdkprog 1.3 (latest release) | development branch |
-|------|------|------|
-| PFS154 | yes | yes |
-| PMS150C | yes | yes |
-| **PFS122** | **no** (unknown IC name) | **yes** |
+| Chip | official 1.3 release | 1.3 + PFS122 (`tools/build-easypdkprog.sh`) | development branch |
+|------|------|------|------|
+| PFS154 | yes | yes | yes |
+| PMS150C | yes | yes | yes |
+| **PFS122** | **no** (unknown IC name) | **yes** | yes |
+| Programmer firmware | 1.3 | **1.3 (no update)** | must be updated |
 
-The PFS122 (and PFS121, PFS172B, PFS123, PFS173B) were added to easypdkprog
-after the 1.3 release and only exist on the
-[development branch](https://github.com/free-pdk/easy-pdk-programmer-software/tree/development).
-The development branch also uses a newer programmer protocol (1.5 instead of
-1.3), so **the programmer firmware has to be updated too**. The software
-refuses to talk to firmware that doesn't match.
+The PFS122 has the same chip ID as the PFS172, which 1.3 already supports; the
+official release just doesn't know the name. The
+[PoGo430 fork](https://github.com/PoGo430/easy-pdk-programmer-software) adds
+PFS122, PFS121 and PFS172B as names for the PFS172 on top of the 1.3 code, so
+they're programmed with the 1.3 PFS172 settings and the stock firmware.
 
-The development build still supports the PFS154 and PMS150C, so you can use it
-for everything.
-
-### Option A: release 1.3 (PFS154, PMS150C only)
+### Option A: official 1.3 release (PFS154, PMS150C)
 
 Download from
 <https://github.com/free-pdk/easy-pdk-programmer-software/releases>, unzip,
 and put `easypdkprog` on your PATH.
 
-### Option B: development branch (needed for PFS122)
+### Option B: 1.3 + PFS122 (recommended for the PFS122)
 
-On Linux, the script in this repo builds both the software and the firmware:
+```sh
+sudo apt install build-essential git       # macOS: xcode-select --install
+tools/build-easypdkprog.sh                 # builds into ~/easy-pdk
+sudo cp ~/easy-pdk/easypdkprog /usr/local/bin/
+easypdkprog list | grep PFS122             # check
+```
+
+Keep the programmer on its 1.3 firmware (the one it shipped with, or from the
+1.3 release zip).
+
+### Option C: development branch
+
+The upstream development branch programs the PFS172 family with a newer write
+method (one word at a time, lower voltage) and uses a newer programmer protocol
+(1.5), so **the programmer firmware has to be updated too**. Use it if a PFS122
+ever fails verification with option B. On Linux, the script builds both:
 
 ```sh
 sudo apt install build-essential git gcc-arm-none-eabi libnewlib-arm-none-eabi dfu-util
@@ -68,8 +80,7 @@ Then flash the new firmware onto the programmer (one time):
    ```
 4. Unplug, plug back in, and check with `easypdkprog probe`.
 
-If you want to go back to 1.3 later, flash the firmware from the 1.3 release
-zip the same way.
+To go back to 1.3 later, flash the firmware from the 1.3 release zip the same way.
 
 (macOS: the same steps work with `brew install arm-none-eabi-gcc dfu-util`.
 Windows: build in MSYS2, see the `INSTALL` file in that repo.)
