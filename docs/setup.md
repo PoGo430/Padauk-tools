@@ -1,7 +1,8 @@
 # Setting up the toolchain
 
-You need three things: **SDCC** (the C compiler), **easypdkprog** (talks to the
-Easy PDK programmer) and **make**. The GUI also needs Python 3 + PyQt5.
+You need: **SDCC** (the C compiler), **easypdkprog** (talks to the Easy PDK
+programmer), **make**, and **Python 3** for the `pdk` helper. VS Code is
+optional but recommended.
 
 ## 1. SDCC
 
@@ -89,22 +90,30 @@ sudo cp ~/easy-pdk-dev/Linux_udevrules/70-stm32vcp.rules /etc/udev/rules.d/
 sudo udevadm control --reload
 ```
 
-## 3. Check everything
+## 3. pdk and VS Code
+
+```sh
+./pdk install          # links pdk into ~/.local/bin (add that to PATH if pdk doctor says so)
+pdk doctor             # checks everything below
+pdk doctor --probe     # ...and talks to the programmer
+```
+
+VS Code: install the **C/C++** extension (`ms-vscode.cpptools`). Opening a
+project suggests it, plus **Task Buttons** for the Build/Flash/Monitor
+buttons in the status bar. For `pdk new` to open VS Code by itself, run
+*Shell Command: Install 'code' command in PATH* from the command palette
+(macOS); on Linux and Windows the installer does this.
+
+### Windows
+
+The tasks and `pdk` call `make`, so install [MSYS2](https://www.msys2.org)
+and in its terminal run `pacman -S make gawk`. Add `C:\msys64\usr\bin` and
+SDCC's `bin` folder to your PATH. Run pdk as `py pdk <command>`.
+
+## 4. Check the programmer by hand
 
 ```sh
 easypdkprog test      # programmer self test (no chip in the socket)
 easypdkprog probe     # with a chip in the socket
 easypdkprog list      # chips this easypdkprog version supports
 ```
-
-Then in a project folder: `make` to build, `make program` to write the chip.
-
-## GUI (optional)
-
-```sh
-pip install PyQt5
-python3 "PadaukBuilder/Padauk Tools.py"
-```
-
-To build a single-file executable: `python3 PadaukBuilder/build_executables.py`
-(the result ends up in `PadaukBuilder/dist/`).

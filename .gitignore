@@ -15,15 +15,12 @@
 *.noi
 *.mem
 
-# PyInstaller / Python
-PadaukBuilder/build/
-PadaukBuilder/dist/
-*.spec
+# Python
 __pycache__/
 *.pyc
+.pdk-backup/
 
 # Editors
 *.layout
 *.depend
-.vscode/
 *.swp

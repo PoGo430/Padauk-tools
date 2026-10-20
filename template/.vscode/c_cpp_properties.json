@@ -1,0 +1,23 @@
+{
+  "configurations": [
+    {
+      "name": "Padauk (SDCC)",
+      "includePath": [
+        "${workspaceFolder}",
+        "${workspaceFolder}/src",
+        "${workspaceFolder}/include",
+        "/usr/share/sdcc/include",
+        "/usr/local/share/sdcc/include",
+        "/opt/homebrew/share/sdcc/include",
+        "C:/Program Files/SDCC/include"
+      ],
+      "forcedInclude": [
+        "${workspaceFolder}/.vscode/pdk_config.h",
+        "${workspaceFolder}/include/sdcc_intellisense.h"
+      ],
+      "compilerPath": "",
+      "cStandard": "c11"
+    }
+  ],
+  "version": 4
+}
