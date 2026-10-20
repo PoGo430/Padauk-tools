@@ -29,6 +29,11 @@ like, and well tested in the free-pdk community.
 - Fuses: `FUSE_SECURITY_ON/OFF`, `FUSE_IO_DRV_LOW/NORMAL`, `FUSE_BOOTUP_SLOW/FAST`.
   `FUSE_IO_DRV_LOW` limits the pin drive strength.
 - The 11-bit PWM generators (PWMG0..2) are in `include/pdk/device/periph/pwmg_*.h`.
+- **Undocumented RFC** (resistance/capacitance-to-frequency converter, see
+  [free-pdk undocumented features](https://free-pdk.github.io/undocumented-features)):
+  counts RC oscillations on a pin, useful for touch or resistive sensors. In
+  the configurator pick "RC sensor input (RFC)", then `NAME_start()`, wait a
+  fixed time, and `rfc_stop()` returns the count.
 - Tip: develop and debug on a PFS154, then switch `DEVICE` to `PMS150C` for the
   final OTP version (watch the smaller RAM/ROM and fewer pins).
 
@@ -82,6 +87,13 @@ it can't be erased or rewritten. Flashing (VS Code task, `pdk flash` or
 - Fuses: `FUSE_SECURITY_ON/OFF`, `FUSE_LVR_*` (low-voltage reset level),
   `FUSE_IO_DRV_LOW/NORMAL`, `FUSE_BOOTUP_SLOW/FAST`.
 - The PMS15A is the same silicon; use `DEVICE = PMS15A` if that's what's printed on it.
+
+## 16 MHz (undocumented, all three chips)
+
+`F_CPU = 16000000` works but isn't in the datasheets: it's only stable with VDD
+close to 5 V. The startup code turns on the 4 V low-voltage reset before
+switching to 16 MHz (PFS154/PFS122; on the PMS150C use the `FUSE_LVR_4V` fuse,
+which the configurator picks automatically at 16 MHz).
 
 ## Things that apply to all of them
 

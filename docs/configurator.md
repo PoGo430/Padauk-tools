@@ -44,6 +44,7 @@ status bar button, or the *Padauk: Pin configurator* task).
 | Comparator | + PA4, - PA3/PA4/PA6/PA7, out PA0 | + PA4, - PA3/PA4/PB6/PB7, out PA0 | same as PFS154 |
 | ADC | - | - | PA0, PA3, PA4, PB0-PB7 |
 | Serial TX (debug) | PA7 | PA7 | PA7 |
+| RC sensor (RFC, undocumented) | - | PA0, PA3, PA4, PB0-PB4, PB6, PB7 | - |
 
 ## Using the generated code
 

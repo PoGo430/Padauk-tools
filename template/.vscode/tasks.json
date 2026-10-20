@@ -227,7 +227,7 @@
         { "label": "1 MHz (IHRC/16)", "value": "1000000" },
         { "label": "500 kHz (IHRC/32)", "value": "500000" },
         { "label": "250 kHz (IHRC/64)", "value": "250000" },
-        { "label": "16 MHz (IHRC, above datasheet rating)", "value": "16000000" }
+        { "label": "16 MHz (undocumented: needs VDD close to 5 V)", "value": "16000000" }
       ],
       "default": "8000000"
     },

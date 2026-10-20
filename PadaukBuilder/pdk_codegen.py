@@ -68,6 +68,11 @@ CHIPS = {
         "drive_fuse": [("normal", "FUSE_IO_DRV_NORMAL"), ("low", "FUSE_IO_DRV_LOW")],
         "has_rop": False,
         "misc2": True,
+        # Undocumented resistance/capacitance-to-frequency converter (free-pdk undocumented-features)
+        "rfc": {"PA4": "RFCC_CH_RFC0_PA4", "PA0": "RFCC_CH_RFC1_PA0", "PA3": "RFCC_CH_RFC2_PA3",
+                "PB7": "RFCC_CH_RFC3_PB7", "PB6": "RFCC_CH_RFC4_PB6", "PB4": "RFCC_CH_RFC5_PB4",
+                "PB3": "RFCC_CH_RFC6_PB3", "PB2": "RFCC_CH_RFC7_PB2", "PB1": "RFCC_CH_RFC8_PB1",
+                "PB0": "RFCC_CH_RFC9_PB0"},
     },
     "PFS172": {
         "pinout": "PFS172",
@@ -123,6 +128,7 @@ FUNCTIONS = {
     "comp_minus": ("Comparator - input", "COMP-", "analog"),
     "comp_out":   ("Comparator output", "COMP OUT", "analog"),
     "serial_tx":  ("Serial TX (debug, ~115200 baud)", "TX", "serial"),
+    "rfc":        ("RC sensor input (RFC, undocumented)", "RFC", "analog"),
     "reset":      ("Reset input (PRSTB)", "RESET", "system"),
 }
 
@@ -178,6 +184,8 @@ def pin_functions(device, pin):
         funcs.append("comp_out")
     if pin == "PA7":
         funcs.append("serial_tx")
+    if pin in c.get("rfc", {}):
+        funcs.append("rfc")
     if pin == "PA5":
         funcs.append("reset")
     return funcs
@@ -300,6 +308,8 @@ def pin_usage(cfg, pin):
         return f"{n}_read() (0..{adc_max(cfg['device'])})"
     if fn == "serial_tx":
         return 'serial_println("text"), serial_print_uint(n), putchar(c)'
+    if fn == "rfc":
+        return f"{n}_start(), then after a fixed time rfc_stop() -> count"
     return ""
 
 
@@ -343,13 +353,22 @@ def resources(cfg):
     out.append(("Comparator", comp or ("on" if cfg["comp"]["enabled"] else None)))
     if c["adc"]:
         out.append(("ADC", users("adc")))
+    if c.get("rfc"):
+        out.append(("RFC", users("rfc")))
     out.append(("Timer16", "millis()" if cfg["system"]["millis"] else None))
     return out
 
 
-def default_lvr(device, vdd_mv):
+def _lvr_mv(level):
+    v, _, frac = level.partition("V")
+    return int(v) * 1000 + (int(frac.ljust(2, "0")) * 10 if frac else 0)
+
+
+def default_lvr(device, vdd_mv, f_cpu=0):
     """Highest LVR level at or below ~80% of VDD."""
     levels = chip(device)["lvr"][1]
+    if f_cpu > 8_000_000 and "4V" in levels:
+        return "4V"        # undocumented 16 MHz needs a high LVR
 
     def mv(level):
         v, _, frac = level.partition("V")
@@ -420,7 +439,16 @@ def check(cfg, f_cpu, vdd_mv):
     if c["otp"]:
         warnings.append(f"{device} is OTP: test on a PFS154 first if you can")
     if f_cpu > 8_000_000:
-        warnings.append("F_CPU above 8 MHz is beyond the usual datasheet rating")
+        warnings.append("16 MHz is undocumented (free-pdk): only stable with VDD close to 5 V; "
+                        "the 4 V low-voltage reset is switched on at startup")
+        if vdd_mv < 4500:
+            warnings.append(f"16 MHz at {vdd_mv / 1000:.1f} V will probably crash: use 8 MHz or less")
+        lv = cfg["system"]["lvr"]
+        if lv and _lvr_mv(lv) < 4000:
+            warnings.append(f"LVR {lv} is too low for 16 MHz: choose 4V (or Auto)")
+    if "rfc" in funcs:
+        warnings.append("RFC is an undocumented PFS154 feature (free-pdk): it may behave differently "
+                        "between chips. C-type mode: one resistor + capacitor per sensor pin")
     if cfg["system"]["security"]:
         warnings.append("Security fuse ON: the chip can't be read back (easypdkprog needs --allowsecfuse)")
     return errors, warnings
@@ -561,6 +589,9 @@ def generate(cfg, f_cpu, vdd_mv):
         if fn == "adc":
             h.append(f"#define {name}_ADC          {c['adc'][pin]}")
             h.append(f"#define {name}_read()       adc_read({c['adc'][pin]})")
+        if fn == "rfc":
+            h.append(f"#define {name}_RFC          {c['rfc'][pin]}")
+            h.append(f"#define {name}_start()      rfc_start({c['rfc'][pin]})   // then wait, then rfc_stop()")
         if fn == "serial_tx":
             h.append("// Serial TX on PA7: serial_println(\"text\"), putchar(c), serial_print_uint(n).")
             h.append("// (printf() needs more RAM than these chips have.)")
@@ -590,6 +621,11 @@ def generate(cfg, f_cpu, vdd_mv):
         else:
             h.append("uint8_t adc_read(uint8_t channel);   // 8-bit result 0..255, channel = <NAME>_ADC")
             h.append("#define ADC_MAX  255")
+    if "rfc" in by_func:
+        h += ["// RFC (undocumented, PFS154): counts RC oscillations on the selected pin while running.",
+              "void rfc_start(uint8_t channel);   // channel = <NAME>_RFC",
+              "uint16_t rfc_stop(void);           // stop and return the count (compare it, e.g. touch vs no touch)",
+              "#define rfc_overflow()  (RFCC & RFCC_OVERFLOW)"]
     if sysc["millis"]:
         h.append("uint32_t millis(void);   // milliseconds since start (Timer16)")
     if "serial_tx" in by_func:
@@ -619,7 +655,7 @@ def generate(cfg, f_cpu, vdd_mv):
         parts = ["FUSE_SECURITY_ON" if sysc["security"] else "FUSE_SECURITY_OFF",
                  dict(c["drive_fuse"]).get(sysc["drive"], c["drive_fuse"][0][1]),
                  "FUSE_BOOTUP_FAST" if sysc["bootup"] == "fast" else "FUSE_BOOTUP_SLOW"]
-        lvr = sysc["lvr"] or default_lvr(device, vdd_mv)
+        lvr = sysc["lvr"] or default_lvr(device, vdd_mv, f_cpu)
         if c["lvr"][0] == "fuse":
             parts.append(f"FUSE_LVR_{lvr}")
         s += ["  // Fuses (stored in the last ROM word when the chip is written)",
@@ -628,10 +664,10 @@ def generate(cfg, f_cpu, vdd_mv):
     # ---- system
     s.append("  // System")
     if c["lvr"][0] == "MISCLVR":
-        lvr = sysc["lvr"] or default_lvr(device, vdd_mv)
+        lvr = sysc["lvr"] or default_lvr(device, vdd_mv, f_cpu)
         s.append(f"  MISCLVR = MISCLVR_{lvr};                 // low voltage reset level")
     elif c["lvr"][0] == "MISCLVR_FULL":
-        lvr = sysc["lvr"] or default_lvr(device, vdd_mv)
+        lvr = sysc["lvr"] or default_lvr(device, vdd_mv, f_cpu)
         s.append(f"  MISCLVR = (uint8_t)(MISCLVR_BANDGAP_ON | MISCLVR_{lvr});   // low voltage reset level")
     wdt = sysc["watchdog"]
     if wdt == "off":
@@ -688,6 +724,8 @@ def generate(cfg, f_cpu, vdd_mv):
                     pu |= m
                 elif pull == "down":
                     pd |= m
+            if fn == "rfc":
+                dier |= m          # RFC sensor pin: input, no pull (digital input left at its reset default)
             if p in analog:
                 notes.append(f"{p} analog")
         s.append(f"  // Port {P}" + (f" ({', '.join(notes)}: digital input off)" if notes else ""))
@@ -828,6 +866,18 @@ def generate(cfg, f_cpu, vdd_mv):
               "  while (i)",
               "    putchar(buf[--i]);",
               "}", ""]
+    if "rfc" in by_func:
+        s += ["// RFC, C-type mode: each sensor pin has its own resistor + capacitor",
+              "// (archived Padauk datasheet, linked from free-pdk.github.io/undocumented-features)",
+              "static uint8_t pdk_rfc_channel;", "",
+              "void rfc_start(uint8_t channel)", "{",
+              "  pdk_rfc_channel = channel;",
+              "  RFCC = (uint8_t)(channel | RFCC_MODE_C_TYPE | RFCC_START);", "}", "",
+              "uint16_t rfc_stop(void)", "{",
+              "  uint8_t lo;",
+              "  RFCC = (uint8_t)(pdk_rfc_channel | RFCC_MODE_C_TYPE);   // start bit 0 = stop counting",
+              "  lo = RFCCRL;",
+              "  return (uint16_t)((uint16_t)RFCCRH << 8) | lo;", "}", ""]
     if "adc" in by_func and c.get("adc_bits", 8) == 12:
         s += ["// PFS122 12-bit ADC: ADCRH (0x22) = result bits 11..4, ADCRL (0x23) bits 7..4 = result bits 3..0",
               "__sfr __at(0x23) _pdk_adcrl;",
