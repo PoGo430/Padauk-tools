@@ -271,3 +271,30 @@ PIN_INFO = {'PFS154': {'pull_up': ['PA7',
                                                               'T3 CLK': ['PA0', 'PB0', 'PA4'],
                                                               'XTAL1': 'PA7',
                                                               'XTAL2': 'PA6'}}}}
+
+
+# ----------------------------------------------------------------------------
+# PFS122: from the PFS122 datasheet (PDK-DS-PFS122-EN V004, 2025-09-02), chapter 2.
+# Same pin order as the PFS172 for every shared package, plus QFN16 (1J16A / 2J16A).
+# Drive/sink currents and pull resistors (4.1) also match the PFS172 data.
+# ----------------------------------------------------------------------------
+PACKAGES["PFS122"] = [
+    {"label": "SOT23-6 60mil  (PFS122-U06)", "parts": ["PFS122-U06"], "quad": False,
+     "pins": ["PA4", "GND", "PA6", "PA5", "VDD", "PA3"], "extra": []},
+    {"label": "SOP8 150mil  (PFS122-S08)", "parts": ["PFS122-S08"], "quad": False,
+     "pins": ["VDD", "PA6", "PA5", "PB7", "PB1", "PA3", "PA4", "GND"], "extra": []},
+    {"label": "MSOP10 118mil / ESSOP10 150mil / DFN3*3 10pin  (PFS122-M10, PFS122-EY10, PFS122-4N10)",
+     "parts": ["PFS122-M10", "PFS122-EY10", "PFS122-4N10"], "quad": False,
+     "pins": ["VDD", "PA6", "PA5", "PB7", "PB4", "PB1", "PA3", "PA4", "PA0", "GND"], "extra": []},
+    {"label": "SOP14 150mil  (PFS122-S14)", "parts": ["PFS122-S14"], "quad": False,
+     "pins": ["VDD", "PA7", "PA6", "PA5", "PB7", "PB4", "PB5", "PB0", "PB1", "PB3", "PA3", "PA4", "PA0", "GND"],
+     "extra": []},
+    {"label": "SOP16 150mil  (PFS122-S16A)", "parts": ["PFS122-S16A"], "quad": False,
+     "pins": ["VDD", "PA7", "PA6", "PA5", "PB7", "PB4", "PB5", "PB6", "PB2", "PB0", "PB1", "PB3", "PA3", "PA4",
+              "PA0", "GND"], "extra": []},
+    {"label": "QFN3*3 / QFN4*4 16pin  (PFS122-1J16A, PFS122-2J16A)", "parts": ["PFS122-1J16A", "PFS122-2J16A"],
+     "quad": True,
+     "pins": ["VDD", "PA7", "PA6", "PA5", "PB7", "PB4", "PB5", "PB6", "PB2", "PB0", "PB1", "PB3", "PA3", "PA4",
+              "PA0", "GND"], "extra": []},
+]
+PIN_INFO["PFS122"] = PIN_INFO["PFS172"]

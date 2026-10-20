@@ -15,7 +15,7 @@ table. Always check the Padauk datasheet for your exact chip and package.
 | Timers | T16, TM2, TM3 | T16, TM2, TM3 | T16, TM2 |
 | PWM | 2x 8-bit, 3x 11-bit | 2x 8-bit | 1x 8-bit |
 | Comparator | yes | yes | yes |
-| ADC | no | 12-bit (see below) | no |
+| ADC | no | 12-bit, 11 channels | no |
 | free-pdk status | Supported | Supported (beta) | Supported |
 | easypdkprog | 1.3 or dev | **dev branch only** | 1.3 or dev |
 
@@ -47,15 +47,26 @@ PFS172 entry (same chip ID). Release 1.3 knows the PFS172, so you could try
 `make probe` and then `make program PROG_ICNAME=PFS172` with 1.3. The dev
 branch is the supported route, though.
 
-**Headers:** `pdk/device.h` maps `PFS122` to `device/pfs172.h`. Everything
-except the ADC should match.
+**Checked against the PFS122 datasheet** (V004, 2025-09-02):
 
+- **Pinout:** identical to the PFS172 in every shared package (SOT23-6, SOP8,
+  MSOP10/ESSOP10/DFN10, SOP14, SOP16), plus QFN16 (PFS122-1J16A / -2J16A). The
+  configurator has all of them.
+- **Registers:** same addresses and bits as `device/pfs172.h` (which
+  `pdk/device.h` uses for `PFS122`), except the ADC result.
+- **12-bit ADC:** `ADCRH` (0x22) holds result bits 11..4, `ADCRL` (0x23) bits
+  7..4 hold bits 3..0. The configurator's `adc_read()` returns the full 0..4095
+  value on the PFS122. The reference is always VDD; to measure VDD itself, read
+  the 1.20 V bandgap channel (`ADCC_CH_AD16_BANDGAP`). The datasheet recommends
+  an ADC clock of about 500 kHz (e.g. SYSCLK/16 at 8 MHz).
+- **Clock limits:** 8 MHz needs VDD >= 3.0 V, 4 MHz >= 2.2 V, 2 MHz >= 1.8 V.
+- **Code options:** interrupt pin choice (PA0/PB5, PB0/PA4), LVR level (8
+  levels, 1.8-4.0 V), comparator interrupt edge and PWM options are listed as
+  "code options". Like on the PFS172, free-pdk sets these through registers
+  (`ROP`, `MISCLVR`, `MISC2`) that the datasheet doesn't document; the
+  generated code uses them the same way. This is the one part that's still
+  unverified.
 - Fuses: `FUSE_SECURITY_ON/OFF`, `FUSE_PB4_PB7_NORMAL/STRONG`, `FUSE_BOOTUP_SLOW/FAST`.
-- **ADC:** the header describes the PFS172's 8-bit ADC (`ADCC`, `ADCM`, `ADCR` at
-  0x20-0x22). The PFS122's 12-bit result registers are not defined in
-  pdk-includes yet. Before relying on the ADC, compare the register table in
-  the PFS122 datasheet with `device/pfs172.h` and add the missing registers
-  (for example `ADCRH`/`ADCRL`) in your project.
 
 ## PMS150C
 

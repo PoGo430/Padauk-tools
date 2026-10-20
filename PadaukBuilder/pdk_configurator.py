@@ -420,11 +420,10 @@ class ConfiguratorWindow(QMainWindow):
         rr.addWidget(self.comp_level)
         rr.addStretch(1)
         f.addRow("Internal reference:", rr)
-        ref_note = QLabel("The reference voltage for each range/level is a fraction of VDD, "
-                          "listed in the comparator chapter of the datasheet.")
-        ref_note.setWordWrap(True)
-        ref_note.setStyleSheet("color: #777")
-        f.addRow(ref_note)
+        self.comp_ref = QLabel()
+        self.comp_ref.setWordWrap(True)
+        self.comp_ref.setStyleSheet("color: #2e7d32")
+        f.addRow("", self.comp_ref)
         self.comp_invert = QCheckBox("Invert output")
         f.addRow(self.comp_invert)
         self.comp_irq = QCheckBox("Interrupt (sets pdk_comp_flag)")
@@ -549,6 +548,9 @@ class ConfiguratorWindow(QMainWindow):
         self.comp_minus.setEnabled("comp_minus" not in funcs)
         self.comp_range.setValue(int(cc["range"]))
         self.comp_level.setValue(int(cc["level"]))
+        ref_mv = g.comp_reference(cc["range"], cc["level"], self.vdd)
+        self.comp_ref.setText(f"= {ref_mv / 1000:.2f} V at VDD {self.vdd / 1000:.1f} V "
+                              f"({ref_mv / self.vdd * 100:.1f}% of VDD; formula from the PFS122 datasheet)")
         self.comp_invert.setChecked(cc["invert"])
         self.comp_irq.setChecked(cc["interrupt"])
         self.comp_edge.setCurrentIndex(self.comp_edge.findData(cc["edge"]))
@@ -557,10 +559,13 @@ class ConfiguratorWindow(QMainWindow):
         self.adc_clock.setValue(int(cfg["adc"].get("clock_khz", 500)))
         if c["adc"]:
             div = g.adc_divider(self.f_cpu, self.adc_clock.value())
-            self.adc_note.setText(f"Uses SYSCLK/{div} = {g.human_freq(self.f_cpu / div)}. Read a pin with "
-                                  "NAME_read() (8-bit result, reference = VDD)."
-                                  + ("\nPFS122: uses the PFS172 ADC registers, not verified on the "
-                                     "PFS122's 12-bit ADC." if c.get("adc_assumed") else ""))
+            bits = c.get("adc_bits", 8)
+            self.adc_note.setText(f"Uses SYSCLK/{div} = {g.human_freq(self.f_cpu / div)} (datasheet recommends "
+                                  f"about 500 kHz). Read a pin with NAME_read(): {bits}-bit result "
+                                  f"0..{g.adc_max(cfg['device'])}, reference = VDD."
+                                  + ("\nTo measure VDD itself, read the 1.20 V bandgap (channel "
+                                     "ADCC_CH_AD16_BANDGAP): VIN = reading / bandgap reading x 1.20 V."
+                                     if bits == 12 else ""))
 
         s = cfg["system"]
         self.select(self.clock, self.f_cpu, pdk.human_hz(self.f_cpu))

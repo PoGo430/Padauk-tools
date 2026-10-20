@@ -97,7 +97,13 @@ CHIPS = {
         "misc2": True,
     },
 }
-CHIPS["PFS122"] = dict(CHIPS["PFS172"], pinout="PFS172", pinout_assumed=True, adc_assumed=True)
+# PFS122: checked against its datasheet (V004, 2025-09-02). Same registers and pins as the PFS172,
+# except a 12-bit ADC (ADCRH 0x22 = bits 11..4, ADCRL 0x23 bits 7..4 = bits 3..0) and 8 LVR levels.
+# Interrupt pin choice, LVR and comparator edge are "code options" there; like on the PFS172 they are
+# written to the undocumented ROP / MISCLVR / MISC2 registers (free-pdk), which the datasheet doesn't list.
+CHIPS["PFS122"] = dict(CHIPS["PFS172"], pinout="PFS122", adc_bits=12, hidden_code_option_regs=True,
+                       lvr=("MISCLVR_FULL", ["4V", "3V5", "3V", "2V7", "2V5", "2V2", "2V", "1V8"]),
+                       max_clock=[(8_000_000, 3000), (4_000_000, 2200), (2_000_000, 1800)])
 
 SUPPORTED = ["PFS154", "PFS122", "PMS150C", "PFS172"]
 
@@ -212,6 +218,8 @@ def load_config(project, device=None):
     if os.path.isfile(path):
         with open(path) as f:
             cfg = json.load(f)
+        if cfg.get("device") == "PFS122" and str(cfg.get("package", "")).startswith("PFS172-"):
+            cfg["package"] = "PFS122-" + cfg["package"][len("PFS172-"):]
         base = default_config(cfg.get("device", device or "PFS154"))
         for key, val in cfg.items():          # merge, so new options get defaults
             if isinstance(val, dict) and isinstance(base.get(key), dict) and key not in ("pins", "pwm"):
@@ -289,7 +297,7 @@ def pin_usage(cfg, pin):
     if fn in PWM_FUNCS:
         return f"{n}_set_duty(0..{n}_PWM_MAX)"
     if fn == "adc":
-        return f"{n}_read() (0..255)"
+        return f"{n}_read() (0..{adc_max(cfg['device'])})"
     if fn == "serial_tx":
         return 'serial_println("text"), serial_print_uint(n), putchar(c)'
     return ""
@@ -400,10 +408,15 @@ def check(cfg, f_cpu, vdd_mv):
         warnings.append("Serial TX needs the IHRC running; use F_CPU >= 250 kHz")
     if cfg["system"]["millis"] and f_cpu < 250_000:
         warnings.append("millis() needs the IHRC running; use F_CPU >= 250 kHz")
-    if "adc" in funcs and c.get("adc_assumed"):
-        warnings.append("PFS122 ADC: code uses the PFS172 8-bit ADC registers (not verified on the PFS122's 12-bit ADC)")
-    if c.get("pinout_assumed"):
-        warnings.append("PFS122 pinout taken from the PFS172 (same chip); check it against your datasheet")
+    for hz, min_mv in c.get("max_clock", []):        # highest clock first
+        if f_cpu >= hz:
+            if vdd_mv < min_mv:
+                warnings.append(f"Datasheet: {human_freq(hz)} needs VDD >= {min_mv / 1000:.1f} V "
+                                f"(you have {vdd_mv / 1000:.1f} V); lower the clock")
+            break
+    if c.get("hidden_code_option_regs") and ("int" in funcs or cfg["system"]["fuses"] or comp_on):
+        warnings.append("PFS122: interrupt pin choice, LVR level and comparator edge use registers that are "
+                        "documented for the PFS172 but not in the PFS122 datasheet (same chip ID)")
     if c["otp"]:
         warnings.append(f"{device} is OTP: test on a PFS154 first if you can")
     if f_cpu > 8_000_000:
@@ -452,6 +465,17 @@ def pwmg_settings(freq):
         return None
     _, pre_name, scale, counts, f = best
     return {"prescale": pre_name, "scale": scale, "cub": 2 * counts - 1, "freq": f}
+
+
+def adc_max(device):
+    return (1 << chip(device).get("adc_bits", 8)) - 1
+
+
+def comp_reference(rng, level, vdd_mv):
+    """Internal comparator reference in mV (PFS122 datasheet 5.5.1; same ladder on the other chips)."""
+    n = int(level) + 1
+    frac = {1: 1 / 4 + n / 32, 2: n / 24, 3: 1 / 5 + n / 40, 4: n / 32}[int(rng)]
+    return frac * vdd_mv
 
 
 def adc_divider(f_cpu, max_khz):
@@ -560,7 +584,12 @@ def generate(cfg, f_cpu, vdd_mv):
     if "comp" in uses_irq:
         h.append("extern volatile uint8_t pdk_comp_flag;")
     if "adc" in by_func:
-        h.append("uint8_t adc_read(uint8_t channel);   // 8-bit result, channel = <NAME>_ADC")
+        if c.get("adc_bits", 8) == 12:
+            h.append("uint16_t adc_read(uint8_t channel);  // 12-bit result 0..4095 (VDD = 4096), channel = <NAME>_ADC")
+            h.append("#define ADC_MAX  4095")
+        else:
+            h.append("uint8_t adc_read(uint8_t channel);   // 8-bit result 0..255, channel = <NAME>_ADC")
+            h.append("#define ADC_MAX  255")
     if sysc["millis"]:
         h.append("uint32_t millis(void);   // milliseconds since start (Timer16)")
     if "serial_tx" in by_func:
@@ -799,7 +828,17 @@ def generate(cfg, f_cpu, vdd_mv):
               "  while (i)",
               "    putchar(buf[--i]);",
               "}", ""]
-    if "adc" in by_func:
+    if "adc" in by_func and c.get("adc_bits", 8) == 12:
+        s += ["// PFS122 12-bit ADC: ADCRH (0x22) = result bits 11..4, ADCRL (0x23) bits 7..4 = result bits 3..0",
+              "__sfr __at(0x23) _pdk_adcrl;",
+              "",
+              "uint16_t adc_read(uint8_t channel)", "{",
+              "  ADCC = (uint8_t)(ADCC_ADC_ENABLE | channel);",
+              "  ADCC |= ADCC_START_ADC_CONV;",
+              "  while (!(ADCC & ADCC_IS_ADC_CONV_READY))",
+              "    ;",
+              "  return (uint16_t)((uint16_t)ADCR << 4) | (_pdk_adcrl >> 4);   // ADCR = ADCRH", "}", ""]
+    elif "adc" in by_func:
         s += ["uint8_t adc_read(uint8_t channel)", "{",
               "  ADCC = (uint8_t)(ADCC_ADC_ENABLE | channel);",
               "  ADCC |= ADCC_START_ADC_CONV;",
