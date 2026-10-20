@@ -6,6 +6,7 @@ Works on the same project folders as VS Code and the `pdk` command, so you
 can switch between them freely. Start it with `pdk gui` or run this file.
 
   Ctrl+B  build        Ctrl+U  flash        Ctrl+M  monitor        Esc  stop
+  Ctrl+O  open         Ctrl+N  new          Ctrl+L  clear output
 """
 import argparse
 import contextlib
@@ -19,13 +20,13 @@ import signal
 import subprocess
 import sys
 
-from PyQt5.QtCore import QProcess, QSettings, Qt, QTimer
+from PyQt5.QtCore import QElapsedTimer, QProcess, QSettings, Qt, QTimer
 from PyQt5.QtGui import QColor, QFont, QKeySequence, QTextCharFormat, QTextCursor
 from PyQt5.QtWidgets import (
-    QApplication, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
-    QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMainWindow,
-    QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QShortcut,
-    QVBoxLayout, QWidget,
+    QAction, QApplication, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
+    QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMenu,
+    QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QShortcut, QSizePolicy,
+    QToolButton, QVBoxLayout, QWidget,
 )
 
 APP_NAME = "Padauk Tools"
@@ -57,7 +58,22 @@ CLOCKS = [("8 MHz", "8000000"), ("4 MHz", "4000000"), ("2 MHz", "2000000"), ("1 
 VOLTAGES = [("5.0 V", "5000"), ("4.0 V", "4000"), ("3.3 V", "3300"), ("3.0 V", "3000"), ("2.5 V", "2500")]
 
 USE_SETSID = os.name == "posix" and shutil.which("setsid") is not None
-ERROR_LINE = re.compile(r"^([^:\s][^:]*):(\d+):\s+(error|warning)")
+ERROR_LINE = re.compile(r"^([^:\s][^:]*):(\d+):\s+(?:syntax\s+)?(error|warning)")
+MISSING_TOOL = re.compile(r"^(?:make|\S*sh)(?:: \d+)?: (\S+): (?:No such file or directory|(?:command )?not found)$")
+RECENT_MAX = 8
+# make target -> what the user clicked (for the status bar)
+COMMAND_NAMES = {"all": "Build", "program": "Flash", "run": "Monitor", "probe": "Probe",
+                 "erase": "Erase", "clean": "Clean"}
+PROGRAMMER_TARGETS = {"program", "run", "probe", "erase"}
+WELCOME = """Welcome to Padauk Tools.
+
+  1. New... creates a project (Ctrl+N). Or Open... an existing project folder
+     (Ctrl+O), or drop a project folder onto this window.
+  2. Build (Ctrl+B) compiles it and shows how much ROM/RAM it uses.
+  3. Flash (Ctrl+U) writes the chip with the Easy PDK programmer.
+
+Not sure everything is installed? Click Doctor.
+"""
 
 
 def call_pdk(func, **kwargs):
@@ -76,6 +92,33 @@ def device_label(name, info):
     arch, rom, ram, mem = info
     kind = "flash" if mem == "mtp" else "OTP"
     return f"{name}   ({kind}, {rom // 1024 if rom % 1024 == 0 else rom / 1024:g}K ROM, {ram} B RAM)"
+
+
+def short_path(path):
+    home = os.path.expanduser("~")
+    return "~" + path[len(home):] if home not in ("", "/") and path.startswith(home + os.sep) else path
+
+
+class PathLabel(QLabel):
+    """A path that is shortened in the middle to fit, instead of widening the window."""
+
+    def __init__(self):
+        super().__init__()
+        self.full_text = ""
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.setMinimumWidth(80)
+
+    def set_path(self, text, tooltip=""):
+        self.full_text = text
+        self.setToolTip(tooltip)
+        self.refresh()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.refresh()
+
+    def refresh(self):
+        self.setText(self.fontMetrics().elidedText(self.full_text, Qt.ElideMiddle, max(self.width(), 80)))
 
 
 # ----------------------------------------------------------------------------
@@ -122,7 +165,7 @@ class NewProjectDialog(QDialog):
             self.location.setText(path)
 
     def values(self):
-        return (self.name.text().strip(), self.location.text().strip(),
+        return (self.name.text().strip(), os.path.expanduser(self.location.text().strip()),
                 self.device.currentData(), self.example.currentData())
 
 
@@ -131,12 +174,20 @@ class MainWindow(QMainWindow):
     def __init__(self, start_dir=None):
         super().__init__()
         self.setWindowTitle(APP_NAME)
-        self.resize(940, 700)
         self.settings = QSettings("Padauk-tools", APP_NAME)
+        geometry = self.settings.value("geometry")
+        if geometry is None or not self.restoreGeometry(geometry):
+            self.resize(940, 700)
+        self.setAcceptDrops(True)                # drop a project folder onto the window
         self.project = None
         self.devices = pdk.load_devices()
         self.loading = False
         self.output_buffer = ""
+        self.command = ""                        # what is running, e.g. "Build"
+        self.command_args = ()
+        self.saw_file_error = False
+        self.missing_tool = None
+        self.timer = QElapsedTimer()
 
         self.process = QProcess(self)
         self.process.setProcessChannelMode(QProcess.MergedChannels)
@@ -159,30 +210,53 @@ class MainWindow(QMainWindow):
         font.setStyleHint(QFont.TypeWriter)
         self.output.setFont(font)
         self.output.mouseDoubleClickEvent = self.on_output_double_click
-        self.output.setToolTip("Double-click an error line to open the file")
+        self.output.setToolTip("Double-click an error line to open the file.\nRight-click to copy or clear.")
+        self.output.setAcceptDrops(False)        # let folder drops reach the window
+        self.copy_all_action = QAction("Copy all", self)
+        self.copy_all_action.triggered.connect(
+            lambda: QApplication.clipboard().setText(self.output.toPlainText()))
+        self.clear_action = QAction("Clear", self)
+        self.clear_action.setShortcut(QKeySequence("Ctrl+L"))
+        self.clear_action.triggered.connect(self.output.clear)
+        self.addAction(self.clear_action)
+        self.output.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.output.customContextMenuRequested.connect(self.output_menu)
         layout.addWidget(self.output, 1)
         self.setCentralWidget(root)
+        self.statusBar()                         # create it now, so the window doesn't jump later
 
         for keys, slot in [("Ctrl+B", lambda: self.run_make("all")), ("Ctrl+U", self.flash),
-                           ("Ctrl+M", lambda: self.run_make("run")), ("Esc", self.stop_process)]:
+                           ("Ctrl+M", lambda: self.run_make("run")), ("Esc", self.stop_process),
+                           ("Ctrl+O", self.open_project), ("Ctrl+N", self.new_project)]:
             QShortcut(QKeySequence(keys), self, activated=slot)
 
         start = start_dir or self.settings.value("project_dir", "")
         self.set_project(pdk.find_project(start) if start else pdk.find_project())
         if not self.project:
-            self.log("Open a project folder, or create a new one.\n", "dim")
+            self.log(WELCOME)
 
     # ----- UI -----------------------------------------------------------------
     def build_project_box(self):
         box = QGroupBox("Project")
         row = QHBoxLayout(box)
-        self.project_label = QLabel()
+        self.project_label = PathLabel()
         self.project_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         row.addWidget(self.project_label, 1)
-        for text, slot in [("Open...", self.open_project), ("New...", self.new_project)]:
-            btn = QPushButton(text)
-            btn.clicked.connect(slot)
-            row.addWidget(btn)
+        # Open...: click to browse, or use the arrow for recent projects
+        self.open_btn = QToolButton()
+        self.open_btn.setText("Open...")
+        self.open_btn.setToolTip("Open a project folder (Ctrl+O).\nThe arrow lists recent projects.")
+        self.open_btn.setPopupMode(QToolButton.MenuButtonPopup)
+        self.open_btn.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+        self.open_btn.clicked.connect(self.open_project)
+        self.recent_menu = QMenu(self)
+        self.recent_menu.aboutToShow.connect(self.fill_recent_menu)
+        self.open_btn.setMenu(self.recent_menu)
+        row.addWidget(self.open_btn)
+        new_btn = QPushButton("New...")
+        new_btn.setToolTip("Create a new project (Ctrl+N)")
+        new_btn.clicked.connect(self.new_project)
+        row.addWidget(new_btn)
         self.config_btn = QPushButton("Configure pins...")
         self.config_btn.setToolTip("Pin and peripheral configurator: click pins, generate init code")
         self.config_btn.clicked.connect(self.open_configurator)
@@ -220,6 +294,8 @@ class MainWindow(QMainWindow):
 
         for combo in (self.device, self.clock, self.vdd):
             combo.currentIndexChanged.connect(self.save_settings)
+        self.device.currentIndexChanged.connect(
+            lambda: self.loading or self.reset_bars("other chip: build again"))
         self.settings_widgets = [self.device, self.clock, self.vdd]
         return box
 
@@ -228,11 +304,22 @@ class MainWindow(QMainWindow):
         grid = QGridLayout(box)
         self.rom_bar, self.ram_bar = QProgressBar(), QProgressBar()
         for row, (label, bar) in enumerate([("ROM", self.rom_bar), ("RAM", self.ram_bar)]):
-            bar.setFormat("not built yet")
-            bar.setValue(0)
             grid.addWidget(QLabel(label), row, 0)
             grid.addWidget(bar, row, 1)
+        self.reset_bars()
         return box
+
+    # Light bar with dark, centred text: readable on the coloured part, in any theme
+    BAR_STYLE = ("QProgressBar {{ background: #ffffff; color: #202020; border: 1px solid #a0a0a0;"
+                 " border-radius: 3px; text-align: center; }}"
+                 " QProgressBar::chunk {{ background: {}; border-radius: 2px; }}")
+
+    def reset_bars(self, text="not built yet"):
+        for bar in (self.rom_bar, self.ram_bar):
+            bar.setMaximum(100)
+            bar.setValue(0)
+            bar.setFormat(text)
+            bar.setStyleSheet(self.BAR_STYLE.format("#a5d6a7"))
 
     def build_actions_box(self):
         box = QGroupBox()
@@ -255,7 +342,7 @@ class MainWindow(QMainWindow):
         add("Monitor", lambda: self.run_make("run"), "Power the chip and show its serial output on PA7 (Ctrl+M)")
         row.addSpacing(12)
         add("Probe", lambda: self.run_make("probe"), "What chip is in the programmer?")
-        add("Erase", self.erase, "Erase a flash chip")
+        self.erase_btn = add("Erase", self.erase, "Erase a flash chip")
         add("Clean", lambda: self.run_make("clean"), "Delete build output")
         row.addSpacing(12)
         self.doctor_btn = add("Doctor", self.doctor, "Check SDCC, make, easypdkprog and the programmer")
@@ -272,13 +359,12 @@ class MainWindow(QMainWindow):
     def set_project(self, path):
         self.project = path
         has = bool(path)
-        self.project_label.setText(path or "(no project open)")
-        for w in [b for b in self.action_buttons if b is not self.doctor_btn] + self.settings_widgets + \
-                [self.code_btn, self.config_btn]:
-            w.setEnabled(has)
+        self.project_label.set_path(short_path(path) if has else "(no project open)", path or "")
+        self.update_buttons()
         if not has:
             return
         self.settings.setValue("project_dir", path)
+        self.add_recent(path)
         self.setWindowTitle(f"{os.path.basename(path)} - {APP_NAME}")
         self.devices = pdk.load_devices(os.path.join(path, "Makefile")) or self.devices
         s = pdk.project_settings(path)
@@ -288,9 +374,75 @@ class MainWindow(QMainWindow):
         self.select(self.vdd, s["TARGET_VDD_MV"], f"{int(s['TARGET_VDD_MV']) / 1000:.2f} V")
         self.loading = False
         self.update_device_note()
-        for bar in (self.rom_bar, self.ram_bar):
-            bar.setValue(0)
-            bar.setFormat("not built yet")
+        self.reset_bars()
+
+    def update_buttons(self):
+        """Enable only what makes sense now (project open? command running? OTP chip?)."""
+        running = self.process.state() != QProcess.NotRunning
+        has = bool(self.project)
+        for btn in self.action_buttons:
+            btn.setEnabled(not running and (has or btn is self.doctor_btn))
+        for w in self.settings_widgets:
+            w.setEnabled(has and not running)
+        for w in (self.code_btn, self.config_btn):
+            w.setEnabled(has)
+        self.stop_btn.setEnabled(running)
+        otp = self.is_otp()
+        if otp:
+            self.erase_btn.setEnabled(False)
+        self.erase_btn.setToolTip(f"The {self.device.currentData()} is one-time programmable: it can't be erased"
+                                  if otp else "Erase a flash chip")
+
+    def is_otp(self):
+        return self.devices.get(self.device.currentData(), ("", 0, 0, ""))[3] == "otp"
+
+    # ----- Recent projects / drag and drop ------------------------------------
+    def recent_projects(self):
+        recent = self.settings.value("recent_projects", [], type=list)
+        return [p for p in recent if isinstance(p, str) and p]
+
+    def add_recent(self, path):
+        recent = [path] + [p for p in self.recent_projects() if p != path]
+        self.settings.setValue("recent_projects", recent[:RECENT_MAX])
+
+    def fill_recent_menu(self):
+        self.recent_menu.clear()
+        recent = [p for p in self.recent_projects()
+                  if p != self.project and os.path.isfile(os.path.join(p, "Makefile"))]
+        metrics = self.recent_menu.fontMetrics()
+        for path in recent:
+            where = metrics.elidedText(short_path(os.path.dirname(path)), Qt.ElideMiddle, 360)
+            action = self.recent_menu.addAction(f"{os.path.basename(path)}    in {where}")
+            action.setToolTip(path)
+            action.triggered.connect(lambda _=False, p=path: self.open_path(p))
+        if not recent:
+            self.recent_menu.addAction("(no other recent projects)").setEnabled(False)
+        else:
+            self.recent_menu.addSeparator()
+            self.recent_menu.addAction("Clear this list", lambda: self.settings.setValue(
+                "recent_projects", [self.project] if self.project else []))
+
+    def open_path(self, path):
+        """Open the project that contains `path` (a folder or a file in it)."""
+        project = pdk.find_project(path)
+        if not project:
+            QMessageBox.warning(self, APP_NAME, f"{path}\n\nis not inside a Padauk project.\n"
+                                "Use New... to create one.")
+            return False
+        self.set_project(project)
+        self.output.clear()
+        self.statusBar().showMessage(f"Opened {project}", 4000)
+        return True
+
+    def dragEnterEvent(self, event):
+        if any(u.isLocalFile() for u in event.mimeData().urls()):
+            event.acceptProposedAction()
+
+    def dropEvent(self, event):
+        paths = [u.toLocalFile() for u in event.mimeData().urls() if u.isLocalFile()]
+        if paths:
+            event.acceptProposedAction()
+            self.open_path(paths[0])
 
     @staticmethod
     def select(combo, value, label):
@@ -302,14 +454,8 @@ class MainWindow(QMainWindow):
 
     def open_project(self):
         path = QFileDialog.getExistingDirectory(self, "Open project folder", self.project or os.path.expanduser("~"))
-        if not path:
-            return
-        project = pdk.find_project(path)
-        if not project:
-            QMessageBox.warning(self, APP_NAME, "That folder is not a Padauk project.\nUse New... to create one.")
-            return
-        self.set_project(project)
-        self.output.clear()
+        if path:
+            self.open_path(path)
 
     def new_project(self):
         dlg = NewProjectDialog(self, self.devices)
@@ -355,6 +501,7 @@ class MainWindow(QMainWindow):
             notes.append("one-time programmable")
         self.device_note.setText(", ".join(notes))
         self.device_note.setVisible(bool(notes))
+        self.update_buttons()                 # Erase depends on the chip
 
     def save_settings(self):
         self.update_device_note()
@@ -416,6 +563,12 @@ class MainWindow(QMainWindow):
             return
         self.output.clear()
         self.output_buffer = ""
+        targets = [a for a in args if "=" not in a]
+        self.command = ("Flash + Monitor" if targets == ["program", "run"]
+                        else COMMAND_NAMES.get(targets[0], "make " + targets[0]))
+        self.command_args = targets
+        self.saw_file_error = False
+        self.missing_tool = None
         self.log("$ make " + " ".join(a for a in args if a != "OTP_OK=1") + "\n", "dim")
         self.process.setWorkingDirectory(self.project)
         cmd = ["make", "--no-print-directory", *args]
@@ -427,6 +580,7 @@ class MainWindow(QMainWindow):
         if not self.process.waitForStarted(3000):
             self.log("Could not start make.\n", "error")
             return
+        self.timer.start()
         self.set_running(True)
 
     def stop_process(self):
@@ -451,12 +605,8 @@ class MainWindow(QMainWindow):
             self.process.kill()
 
     def set_running(self, running):
-        for btn in self.action_buttons:
-            btn.setEnabled(not running and (bool(self.project) or btn is self.doctor_btn))
-        for w in self.settings_widgets:
-            w.setEnabled(not running)
-        self.stop_btn.setEnabled(running)
-        self.statusBar().showMessage("Running... (Esc to stop)" if running else "")
+        self.update_buttons()
+        self.statusBar().showMessage(f"{self.command} running... (Esc to stop)" if running else "")
 
     # ----- Output ---------------------------------------------------------------
     def on_output(self):
@@ -468,6 +618,11 @@ class MainWindow(QMainWindow):
     def log_line(self, line):
         style = None
         low = line.lower()
+        if ERROR_LINE.match(line):
+            self.saw_file_error = True
+        m = MISSING_TOOL.match(line)
+        if m:
+            self.missing_tool = m.group(1)
         if ERROR_LINE.match(line) and " error" in line or low.startswith(("error", "make: ***")) or " error:" in low:
             style = "error"
         elif ERROR_LINE.match(line) or "warning" in low:
@@ -483,20 +638,39 @@ class MainWindow(QMainWindow):
                 bar.setValue(min(used, total))
                 bar.setFormat(f"{used} / {total} {unit}  (%p%)")
                 pct = used * 100 // max(total, 1)
-                color = "#c62828" if pct >= 90 else "#ef8f00" if pct >= 75 else "#2e7d32"
-                bar.setStyleSheet(f"QProgressBar::chunk {{ background: {color}; }}")
+                color = "#ef9a9a" if pct >= 90 else "#ffcc80" if pct >= 75 else "#a5d6a7"
+                bar.setStyleSheet(self.BAR_STYLE.format(color))
 
     def on_finished(self, code, status):
         if self.output_buffer:
             self.log_line(self.output_buffer)
             self.output_buffer = ""
+        ms = self.timer.elapsed()
+        took = f"{ms} ms" if ms < 1000 else f"{ms / 1000:.1f} s"
         if status == QProcess.CrashExit or code in (130, -signal.SIGINT):
-            self.log("\n[stopped]\n", "dim")
+            self.log(f"\n[stopped after {took}]\n", "dim")
+            result = f"{self.command} stopped"
         elif code == 0:
-            self.log("\n[done]\n", "good")
+            self.log(f"\n[done in {took}]\n", "good")
+            result = f"{self.command} OK  ({took})"
         else:
-            self.log(f"\n[failed, exit code {code}]  Double-click an error to open the file.\n", "error")
+            self.log(f"\n[failed after {took}, exit code {code}]\n", "error")
+            hint = self.failure_hint()
+            if hint:
+                self.log(hint + "\n")
+            result = f"{self.command} FAILED  (see the output)"
         self.set_running(False)
+        self.statusBar().showMessage(result)
+
+    def failure_hint(self):
+        if self.missing_tool:
+            return f"'{self.missing_tool}' was not found. Click Doctor to check your setup."
+        if self.saw_file_error:
+            return "Double-click an error line to open the file."
+        if PROGRAMMER_TARGETS & set(self.command_args):
+            return ("Is the Easy PDK programmer plugged in, with the chip in the socket?\n"
+                    "Probe checks the connection; Doctor checks your whole setup.")
+        return ""
 
     COLORS = {"error": "#c62828", "warning": "#b36b00", "good": "#2e7d32", "dim": "#777777"}
 
@@ -528,7 +702,16 @@ class MainWindow(QMainWindow):
         else:
             subprocess.Popen(["xdg-open", path])
 
+    def output_menu(self, pos):
+        menu = self.output.createStandardContextMenu()
+        menu.addSeparator()
+        menu.addAction(self.copy_all_action)
+        menu.addAction(self.clear_action)
+        menu.exec_(self.output.mapToGlobal(pos))
+        menu.deleteLater()
+
     def closeEvent(self, event):
+        self.settings.setValue("geometry", self.saveGeometry())
         if self.process.state() != QProcess.NotRunning:
             self.stop_process()
             self.process.waitForFinished(3000)

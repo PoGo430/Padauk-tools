@@ -97,6 +97,14 @@ CFLAGS  := -m$(ARCH) --std-sdcc11 $(OPT_FLAGS) \
 LDFLAGS := -m$(ARCH) --out-fmt-ihx
 PROG    := $(EASYPDKPROG) $(if $(PROG_PORT),-p $(PROG_PORT))
 
+# Clear message (instead of a cryptic shell error) when a tool is not installed.
+# The first line keeps the usual "make: X: command not found" shape.
+need = command -v $(firstword $(1)) >/dev/null 2>&1 || { \
+  echo "make: $(firstword $(1)): command not found"; \
+  echo "  $(2)"; echo "  Run 'pdk doctor' to check your setup."; exit 127; }
+NEED_SDCC = $(call need,$(CC),Install SDCC 4.x (sdcc.sourceforge.net, or your package manager).)
+NEED_PROG = $(call need,$(EASYPDKPROG),Install easypdkprog (free-pdk.github.io) or set EASYPDKPROG to its path.)
+
 # =============================================================================
 #  Targets
 # =============================================================================
@@ -106,11 +114,15 @@ build: intellisense $(OUTPUT).ihx $(OUTPUT).bin
 
 $(BUILD_DIR)/%.rel: %.c $(HEADERS) Makefile
 	@mkdir -p $(dir $@)
+	@$(NEED_SDCC)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 $(OUTPUT).ihx: $(OBJECTS)
 	@mkdir -p $(OUTPUT_DIR)
-	$(CC) $(LDFLAGS) -o $@ $(OBJECTS)
+	@$(if $(findstring s,$(firstword -$(MAKEFLAGS))),:,echo "$(CC) $(LDFLAGS) -o $@ $(OBJECTS)")
+	@$(CC) $(LDFLAGS) -o $@ $(OBJECTS) || { \
+	  echo "  Linking failed. \"Undefined Global '_name'\" means 'name' is used but never defined:"; \
+	  echo "  check the spelling, and that its .c file is in the project folder or src/."; exit 1; }
 
 $(OUTPUT).bin: $(OUTPUT).ihx
 	makebin -p $< $@
@@ -120,6 +132,8 @@ $(OUTPUT).bin: $(OUTPUT).ihx
 size: build
 	@awk -v dev="$(DEVICE)" -v arch="$(ARCH)" -v rom="$(ROM_WORDS)" -v ram="$(RAM_BYTES)" \
 	     -v fcpu="$(F_CPU)" -v vdd="$(TARGET_VDD)" -v map="$(OUTPUT).map" ' \
+	  function bar(used, total,  i, n, s) { n = int(used * 20 / total + 0.5); if (n > 20) n = 20; \
+	    s = "["; for (i = 0; i < 20; i++) s = s (i < n ? "#" : "."); return s "]" } \
 	  function hex(s,  i, n, c) { n = 0; s = toupper(s); \
 	    for (i = 1; i <= length(s); i++) { c = index("0123456789ABCDEF", substr(s, i, 1)) - 1; n = n * 16 + c } \
 	    return n } \
@@ -131,9 +145,9 @@ size: build
 	        end = hex(f[2]) + hex(f[3]); if (end > ramtop) ramtop = end } } \
 	    words = int((bytes + 1) / 2); \
 	    printf "\n  %s (%s)  F_CPU=%s Hz  VDD=%s V\n", dev, arch, fcpu, vdd; \
-	    printf "  ROM: %5d / %5d words  (%3d%%)\n", words, rom, words * 100 / rom; \
-	    printf "  RAM: %5d / %5d bytes  (%3d%%)  static data, stack uses the rest\n\n", ramtop, ram, ramtop * 100 / ram; \
-	    if (words > rom) { print "  ERROR: program does not fit in ROM!"; exit 1 } \
+	    printf "  ROM: %5d / %5d words  (%3d%%)  %s\n", words, rom, words * 100 / rom, bar(words, rom); \
+	    printf "  RAM: %5d / %5d bytes  (%3d%%)  %s  static data, stack uses the rest\n\n", ramtop, ram, ramtop * 100 / ram, bar(ramtop, ram); \
+	    if (words > rom) { printf "  ERROR: program does not fit in ROM (%d words too big)!\n", words - rom; exit 1 } \
 	    if (ramtop >= ram) { print "  ERROR: no RAM left for the stack!"; exit 1 } \
 	    if (ram - ramtop < 8) print "  WARNING: less than 8 bytes left for the stack.\n"; \
 	    if (fcpu + 0 > 8000000) print "  WARNING: F_CPU above 8 MHz is beyond the usual datasheet rating (check yours).\n" \
@@ -142,6 +156,7 @@ size: build
 # OTP chips can only be written once: ask first (only in an interactive
 # terminal; pass OTP_OK=1 to skip the question).
 program: size
+	@$(NEED_PROG)
 ifeq ($(MEM_TYPE),otp)
 	@if [ -t 0 ] && [ -z "$(OTP_OK)" ]; then \
 	   printf "$(DEVICE) is OTP: it can only be written ONCE. Write it now? [y/N] "; read answer; \
@@ -180,27 +195,33 @@ intellisense:
 # Power the chip from the programmer and show serial output from PA7
 # (see include/serial.h). Ctrl+C to stop.
 run:
+	@$(NEED_PROG)
 	$(PROG) -r $(TARGET_VDD) start
 
 start: run
 
 probe:
+	@$(NEED_PROG)
 	$(PROG) probe
 
 list:
+	@$(NEED_PROG)
 	$(EASYPDKPROG) list
 
 test:
+	@$(NEED_PROG)
 	$(PROG) test
 
 erase:
 ifeq ($(MEM_TYPE),otp)
 	@echo "$(DEVICE) is OTP and cannot be erased."; exit 1
 endif
+	@$(NEED_PROG)
 	$(PROG) -n $(ICNAME) erase
 
 read:
 	@mkdir -p $(OUTPUT_DIR)
+	@$(NEED_PROG)
 	$(PROG) -n $(ICNAME) read $(OUTPUT_DIR)/readout_$(DEVICE).ihx
 
 devices:
@@ -227,21 +248,30 @@ print-%:
 	@echo '$*=$($*)'
 
 help:
-	@echo "Targets:"
+	@echo "Build"
 	@echo "  make             build and show ROM/RAM usage"
+	@echo "  make clean       remove build output"
+	@echo ""
+	@echo "Programmer (Easy PDK)"
 	@echo "  make program     build and write the chip (alias: flash)"
 	@echo "  make run         power the chip at TARGET_VDD and show its serial output (alias: start)"
+	@echo "  make program run write, then show serial output"
 	@echo "  make probe       detect the chip in the programmer socket"
 	@echo "  make erase       erase a flash (PFS) chip"
 	@echo "  make read        read the chip back into .output/"
 	@echo "  make list        list chips your easypdkprog version supports"
 	@echo "  make test        programmer self test"
-	@echo "  make devices     list chips this Makefile knows"
-	@echo "  make config      show the current settings"
-	@echo "  make set ...     save settings, e.g. make set DEVICE=PFS122 F_CPU=4000000"
-	@echo "  make clean       remove build output"
 	@echo ""
-	@echo "Settings (edit at the top of the Makefile or pass on the command line):"
-	@echo "  DEVICE=$(DEVICE) F_CPU=$(F_CPU) TARGET_VDD_MV=$(TARGET_VDD_MV) PROJECT_NAME=$(PROJECT_NAME)"
+	@echo "Settings"
+	@echo "  make config      show the current settings"
+	@echo "  make devices     list chips this Makefile knows"
+	@echo "  make set ...     save settings, e.g. make set DEVICE=PFS122 F_CPU=4000000"
+	@echo "  make print-VAR   print any variable, e.g. make print-ARCH"
+	@echo ""
+	@echo "Current: DEVICE=$(DEVICE) F_CPU=$(F_CPU) TARGET_VDD_MV=$(TARGET_VDD_MV) PROJECT_NAME=$(PROJECT_NAME)"
+	@echo "Something not working? Run 'pdk doctor' to check sdcc, easypdkprog and the programmer."
+
+# Delete half-written outputs when a step fails, so the next make rebuilds them
+.DELETE_ON_ERROR:
 
 .PHONY: all build size program flash set intellisense run start probe list test erase read devices config clean distclean help

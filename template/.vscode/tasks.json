@@ -8,59 +8,110 @@
     {
       "label": "Padauk: Build",
       "detail": "Compile and show ROM/RAM usage (make)",
+      "icon": { "id": "tools" },
       "type": "shell",
       "command": "make",
       "group": { "kind": "build", "isDefault": true },
-      "problemMatcher": {
-        "owner": "sdcc",
-        "source": "sdcc",
-        "fileLocation": ["relative", "${workspaceFolder}"],
-        "pattern": {
-          "regexp": "^(?!-:)([^:\\s][^:]*):(\\d+):\\s+(error|warning)\\s+\\d+:\\s+(.*)$",
-          "file": 1, "line": 2, "severity": 3, "message": 4
+      "problemMatcher": [
+        {
+          "owner": "sdcc", "source": "sdcc", "fileLocation": ["relative", "${workspaceFolder}"],
+          "pattern": {
+            "regexp": "^(?!-:)([^:\\s][^:]*):(\\d+):\\s+(error|warning)\\s+\\d+:\\s+(.*)$",
+            "file": 1, "line": 2, "severity": 3, "message": 4
+          }
+        },
+        {
+          "owner": "sdcc", "source": "sdcc", "fileLocation": ["relative", "${workspaceFolder}"],
+          "pattern": {
+            "regexp": "^(?!-:)([^:\\s][^:]*):(\\d+):\\s+(syntax (error):\\s+.*?)(?:\\s*;\\s*column\\s+(\\d+))?$",
+            "file": 1, "line": 2, "message": 3, "severity": 4, "column": 5
+          }
+        },
+        {
+          "owner": "sdcc", "source": "sdcpp", "fileLocation": ["relative", "${workspaceFolder}"],
+          "pattern": {
+            "regexp": "^(?!-:)([^:\\s][^:]*):(\\d+):(\\d+):\\s+(?:fatal\\s+)?(error|warning):\\s+(.*)$",
+            "file": 1, "line": 2, "column": 3, "severity": 4, "message": 5
+          }
         }
-      }
+      ]
     },
     {
       "label": "Padauk: Flash",
       "detail": "Build and write the chip in the programmer (make program)",
+      "icon": { "id": "zap" },
       "type": "shell",
       "command": "make program",
-      "problemMatcher": {
-        "owner": "sdcc",
-        "source": "sdcc",
-        "fileLocation": ["relative", "${workspaceFolder}"],
-        "pattern": {
-          "regexp": "^(?!-:)([^:\\s][^:]*):(\\d+):\\s+(error|warning)\\s+\\d+:\\s+(.*)$",
-          "file": 1, "line": 2, "severity": 3, "message": 4
+      // focus the terminal so you can answer the OTP "Write it now? [y/N]" question
+      "presentation": { "reveal": "always", "focus": true, "panel": "shared", "clear": true, "showReuseMessage": false },
+      "problemMatcher": [
+        {
+          "owner": "sdcc", "source": "sdcc", "fileLocation": ["relative", "${workspaceFolder}"],
+          "pattern": {
+            "regexp": "^(?!-:)([^:\\s][^:]*):(\\d+):\\s+(error|warning)\\s+\\d+:\\s+(.*)$",
+            "file": 1, "line": 2, "severity": 3, "message": 4
+          }
+        },
+        {
+          "owner": "sdcc", "source": "sdcc", "fileLocation": ["relative", "${workspaceFolder}"],
+          "pattern": {
+            "regexp": "^(?!-:)([^:\\s][^:]*):(\\d+):\\s+(syntax (error):\\s+.*?)(?:\\s*;\\s*column\\s+(\\d+))?$",
+            "file": 1, "line": 2, "message": 3, "severity": 4, "column": 5
+          }
+        },
+        {
+          "owner": "sdcc", "source": "sdcpp", "fileLocation": ["relative", "${workspaceFolder}"],
+          "pattern": {
+            "regexp": "^(?!-:)([^:\\s][^:]*):(\\d+):(\\d+):\\s+(?:fatal\\s+)?(error|warning):\\s+(.*)$",
+            "file": 1, "line": 2, "column": 3, "severity": 4, "message": 5
+          }
         }
-      }
+      ]
     },
     {
       "label": "Padauk: Flash + Monitor",
-      "detail": "Write the chip, then power it and show its serial output (PA7). Ctrl+C to stop.",
+      "detail": "Build, write the chip, then power it and show its serial output (PA7). Ctrl+C to stop.",
+      "icon": { "id": "play" },
       "type": "shell",
+      "presentation": { "reveal": "always", "focus": true, "panel": "shared", "clear": true, "showReuseMessage": false },
       "command": "make program run",
-      "problemMatcher": {
-        "owner": "sdcc",
-        "source": "sdcc",
-        "fileLocation": ["relative", "${workspaceFolder}"],
-        "pattern": {
-          "regexp": "^(?!-:)([^:\\s][^:]*):(\\d+):\\s+(error|warning)\\s+\\d+:\\s+(.*)$",
-          "file": 1, "line": 2, "severity": 3, "message": 4
+      "problemMatcher": [
+        {
+          "owner": "sdcc", "source": "sdcc", "fileLocation": ["relative", "${workspaceFolder}"],
+          "pattern": {
+            "regexp": "^(?!-:)([^:\\s][^:]*):(\\d+):\\s+(error|warning)\\s+\\d+:\\s+(.*)$",
+            "file": 1, "line": 2, "severity": 3, "message": 4
+          }
+        },
+        {
+          "owner": "sdcc", "source": "sdcc", "fileLocation": ["relative", "${workspaceFolder}"],
+          "pattern": {
+            "regexp": "^(?!-:)([^:\\s][^:]*):(\\d+):\\s+(syntax (error):\\s+.*?)(?:\\s*;\\s*column\\s+(\\d+))?$",
+            "file": 1, "line": 2, "message": 3, "severity": 4, "column": 5
+          }
+        },
+        {
+          "owner": "sdcc", "source": "sdcpp", "fileLocation": ["relative", "${workspaceFolder}"],
+          "pattern": {
+            "regexp": "^(?!-:)([^:\\s][^:]*):(\\d+):(\\d+):\\s+(?:fatal\\s+)?(error|warning):\\s+(.*)$",
+            "file": 1, "line": 2, "column": 3, "severity": 4, "message": 5
+          }
         }
-      }
+      ]
     },
     {
       "label": "Padauk: Monitor",
       "detail": "Power the chip from the programmer and show its serial output (PA7). Ctrl+C to stop.",
+      "icon": { "id": "terminal" },
       "type": "shell",
+      "presentation": { "reveal": "always", "focus": true, "panel": "shared", "clear": true, "showReuseMessage": false },
       "command": "make run",
       "problemMatcher": []
     },
     {
       "label": "Padauk: Probe",
       "detail": "Detect the chip in the programmer socket",
+      "icon": { "id": "search" },
       "type": "shell",
       "command": "make probe",
       "problemMatcher": []
@@ -68,18 +119,23 @@
     {
       "label": "Padauk: Erase",
       "detail": "Erase a flash (PFS) chip",
+      "icon": { "id": "trash" },
       "type": "shell",
       "command": "make erase",
       "problemMatcher": []
     },
     {
       "label": "Padauk: Clean",
+      "detail": "Delete .build/ and .output/ (make clean)",
+      "icon": { "id": "clear-all" },
       "type": "shell",
       "command": "make clean",
       "problemMatcher": []
     },
     {
       "label": "Padauk: Show settings",
+      "detail": "Device, clock, voltage, sources and the programmer command (make config)",
+      "icon": { "id": "list-flat" },
       "type": "shell",
       "command": "make config",
       "problemMatcher": []
@@ -87,6 +143,7 @@
     {
       "label": "Padauk: Pin configurator",
       "detail": "CubeMX-style pin setup, generates pdk_init.c/h (needs pdk on PATH and PyQt5)",
+      "icon": { "id": "circuit-board" },
       "type": "shell",
       "command": "pdk configure",
       "problemMatcher": []
@@ -94,6 +151,7 @@
     {
       "label": "Padauk: Regenerate init code",
       "detail": "pdk_init.c/h from padauk.json, no GUI",
+      "icon": { "id": "refresh" },
       "type": "shell",
       "command": "pdk generate",
       "problemMatcher": []
@@ -101,12 +159,15 @@
     {
       "label": "Padauk: Select device",
       "detail": "Pick the chip (saved in the Makefile, IntelliSense follows)",
+      "icon": { "id": "chip" },
       "type": "shell",
       "command": "make set DEVICE=${input:device}",
       "problemMatcher": []
     },
     {
       "label": "Padauk: Select clock (F_CPU)",
+      "detail": "System clock in Hz (saved in the Makefile)",
+      "icon": { "id": "watch" },
       "type": "shell",
       "command": "make set F_CPU=${input:fcpu}",
       "problemMatcher": []
@@ -114,8 +175,17 @@
     {
       "label": "Padauk: Select supply voltage",
       "detail": "Voltage your circuit runs at; the clock is calibrated for it",
+      "icon": { "id": "plug" },
       "type": "shell",
       "command": "make set TARGET_VDD_MV=${input:vdd}",
+      "problemMatcher": []
+    },
+    {
+      "label": "Padauk: Check setup (doctor)",
+      "detail": "Run this when something does not work: checks make, sdcc and easypdkprog (pdk doctor)",
+      "icon": { "id": "pulse" },
+      "type": "shell",
+      "command": "pdk doctor",
       "problemMatcher": []
     }
   ],

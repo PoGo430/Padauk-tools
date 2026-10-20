@@ -9,6 +9,14 @@
  *
  *   PA4 ----[ 330R-1k ]----|>|---- GND     (LED, active high)
  *
+ * START HERE (first steps):
+ *  1. Pick your chip / clock / supply voltage: `pdk set device=PFS154 clock=8M vdd=5`
+ *     (or the status bar buttons in VS Code, or the top of the Makefile).
+ *  2. Change pin numbers in board.h if your LED/button sit elsewhere.
+ *  3. Put one-time setup code in setup() and repeating code in loop() below.
+ *  4. Build (Ctrl+Shift+B or `make`), then Flash (`make program`).
+ *  Stuck? `pdk doctor` checks your tools and programmer, `make help` lists the rest.
+ *
  * Things worth knowing about Padauk chips:
  *  - Registers are NOT reset to known values at power-up: set every register
  *    you rely on (direction, pull-ups, timers...) yourself.
@@ -48,6 +56,7 @@ void interrupt(void) __interrupt(0)
 // ---------------------------------------------------------------------------
 static void setup(void)
 {
+  // >>> Your one-time setup goes here (pin directions, timers, ...) <<<
   PIN_OUTPUT(A, LED_PIN);     // LED pin as output (pins start as inputs)
   PIN_LOW(A, LED_PIN);
 
@@ -64,6 +73,7 @@ static void setup(void)
 // ---------------------------------------------------------------------------
 static void loop(void)
 {
+  // >>> Your main code goes here (replace the blink) <<<
   PIN_TOGGLE(A, LED_PIN);
   _delay_ms(500);
 }
