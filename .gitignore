@@ -1,0 +1,29 @@
+# Build output
+.build/
+.output/
+*.ihx
+*.bin
+*.map
+*.lst
+*.rel
+*.sym
+*.rst
+*.asm
+*.lk
+*.cdb
+*.adb
+*.noi
+*.mem
+
+# PyInstaller / Python
+PadaukBuilder/build/
+PadaukBuilder/dist/
+*.spec
+__pycache__/
+*.pyc
+
+# Editors
+*.layout
+*.depend
+.vscode/
+*.swp
