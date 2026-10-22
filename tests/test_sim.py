@@ -14,7 +14,12 @@ import pytest
 from padauk_studio import codegen, examples, toolchain
 
 UCSIM = os.path.join(os.path.dirname(toolchain.find_tool("sdcc")[0] or ""), "ucsim_pdk" + toolchain.EXE)
-pytestmark = pytest.mark.skipif(not os.path.isfile(UCSIM), reason="ucsim_pdk not found")
+pytestmark = [
+    pytest.mark.skipif(not os.path.isfile(UCSIM), reason="ucsim_pdk not found"),
+    # ucsim on Windows doesn't take its commands from a pipe the same way (breakpoints are
+    # never reached). The generated code is the same on every OS; Linux CI runs these.
+    pytest.mark.skipif(os.name == "nt", reason="ucsim command piping differs on Windows"),
+]
 CASES = [(e["key"], c) for e in examples.EXAMPLES for c in e["chips"]]
 
 
