@@ -54,6 +54,9 @@ def expected(p):
     for s in codegen.interrupt_sources(ctx, plan):
         reg, name = s["inten"].split("_", 1)
         inten |= field(chip, "INTEN", name)
+    if p.serial_enabled():
+        # pdk_init sends a sync character: the serial timer interrupt is on until it's out
+        inten |= field(chip, "INTEN", p.data["serial"]["timer"])
     exp["INTEN"] = inten
     for name, s in plan.items():
         mode = p.timer(name)["mode"]

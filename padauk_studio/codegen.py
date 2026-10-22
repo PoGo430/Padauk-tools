@@ -494,21 +494,23 @@ def generate_init_c(ctx: Context, plan) -> str:
         w("")
         w("void pdk_serial_isr(void)")
         w("{")
-        w("  if (serial_bits) {")
-        w("    if (serial_bits & 1)")
-        w("      PA |= (1 << 7);")
-        w("    else")
-        w("      PA &= (uint8_t)~(1 << 7);")
-        w("    serial_bits >>= 1;")
-        w("  }")
+        w("  if (!serial_bits)")
+        w("    return;")
+        w("  if (serial_bits & 1)")
+        w("    PA |= (1 << 7);")
+        w("  else")
+        w("    PA &= (uint8_t)~(1 << 7);")
+        w("  serial_bits >>= 1;")
+        w("  if (!serial_bits)")
+        w(f"    INTEN &= (uint8_t)~INTEN_{t};     /* sent: no more interrupts until the next character */")
         w("}")
         w("")
         w("void serial_putc(char c)")
         w("{")
         w("  while (serial_bits)")
         w("    ;")
-        w(f"  INTEN &= (uint8_t)~INTEN_{t};        /* the 16-bit write must not be interrupted */")
         w("  serial_bits = ((uint16_t)(uint8_t)c << 1) | 0x200;   /* start bit, 8 data bits, stop bit */")
+        w(f"  INTRQ &= (uint8_t)~INTRQ_{t};       /* the start bit begins at the next timer period */")
         w(f"  INTEN |= INTEN_{t};")
         w("}")
         w("")
@@ -653,6 +655,18 @@ def generate_init_c(ctx: Context, plan) -> str:
     w("")
     if ctx.chip.factory_bgtr is not None and (comp.get("enabled") or p.data["adc"].get("enabled")):
         w("  BGTR = FACTORY_BGTR();   /* bandgap: factory trim */")
+    # Registers aren't reliably reset at power-up (free-pdk): switch off what isn't used
+    off = []
+    for name in chip.timers:
+        if name not in plan:
+            off.append("T16M = 0;" if name == "T16" else f"{name}C = 0;")
+    if not comp.get("enabled"):
+        off += ["GPCC = 0;", "GPCS = 0;"]
+    if chip.adc and not p.data["adc"].get("enabled"):
+        off.append("ADCC = 0;")
+    if "EOSCR" in chip.reg_by_name:
+        off.append("EOSCR = 0;")
+    w("  " + " ".join(off) + "   /* unused: off */")
     # timers
     for name in chip.timers:
         if name not in plan:
@@ -731,10 +745,11 @@ def generate_init_c(ctx: Context, plan) -> str:
     if chip.comparator["edge"][0] == "INTEGS" and comp.get("enabled") and comp.get("irq", "off") != "off":
         integs.append(f"INTEGS_COMP_{comp_edge}")
     w(f"  INTEGS = {'(uint8_t)(' + ' | '.join(integs) + ')' if integs else '0'};   /* interrupt edges */")
+    enabled = [s["inten"] for s in srcs if not s.get("no_user")]   # serial turns its own on
     if srcs:
         w("")
         w("  INTRQ = 0;")
-        w(f"  INTEN = (uint8_t)({' | '.join(dict.fromkeys(s['inten'] for s in srcs))});")
+        w(f"  INTEN = (uint8_t)({' | '.join(dict.fromkeys(enabled)) or '0'});")
         w("  interrupts_on();")
     else:
         w("  INTEN = 0;")
@@ -783,5 +798,38 @@ def write_project(project: Project, folder: Optional[str] = None) -> List[str]:
         with open(path, "w", encoding="utf-8", newline="\n") as f:
             f.write(text)
         written.append(name)
+    if write_vscode_config(project, folder):
+        written.append(".vscode/c_cpp_properties.json")
     project.save(folder)
     return written
+
+
+def write_vscode_config(project: Project, folder: str) -> bool:
+    """IntelliSense settings for VS Code, so SDCC's keywords don't show as errors.
+    Kept up to date while it's ours; if you edit it (rename the configuration), it's left alone."""
+    import json
+    path = os.path.join(folder, ".vscode", "c_cpp_properties.json")
+    arch = project.chip.arch
+    if os.path.exists(path):
+        try:
+            with open(path, encoding="utf-8") as f:
+                old = json.load(f)
+            name = old["configurations"][0]["name"]
+        except (OSError, ValueError, KeyError, IndexError):
+            return False
+        if not name.startswith("SDCC ") or name == "SDCC " + arch:
+            return False
+    cfg = {"configurations": [{
+        "name": "SDCC " + arch,
+        "includePath": ["${workspaceFolder}/**"],
+        "defines": [f"__SDCC_{arch}", "__SDCC", "__sfr=volatile unsigned char",
+                    "__sfr16=volatile unsigned short", "__at(x)=", "__interrupt(x)=", "__asm__(x)=",
+                    "__asm=", "__endasm="],
+        "compilerPath": "",
+        "cStandard": "c11",
+        "intelliSenseMode": "gcc-x86",
+    }], "version": 4}
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, indent=2)
+    return True

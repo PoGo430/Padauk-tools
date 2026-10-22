@@ -71,6 +71,10 @@ def find_tool(name: str) -> Tuple[Optional[str], str]:
         for rel in (f"sdcc/bin/{name}{EXE}", f"{name}{EXE}", f"bin/{name}{EXE}"):
             cand = os.path.join(tdir, rel)
             if os.path.isfile(cand):
+                if name == "sdcc":      # sdcc runs its helpers (sdcpp, sdas, sdld) from the same folder
+                    for f in glob.glob(os.path.join(os.path.dirname(cand), "*")):
+                        make_executable(f)
+                make_executable(cand)
                 return cand, "bundled"
     p = shutil.which(name)
     if p:
@@ -83,8 +87,33 @@ def find_tool(name: str) -> Tuple[Optional[str], str]:
     return None, ""
 
 
+def tool_env() -> dict:
+    """Environment for the tools: without the one-file app's library path, plus the bundled
+    tools folder (libusb for dfu-util on Linux)."""
+    env = dict(os.environ)
+    if getattr(sys, "frozen", False) and sys.platform.startswith("linux"):
+        orig = env.pop("LD_LIBRARY_PATH_ORIG", None)
+        if orig is not None:
+            env["LD_LIBRARY_PATH"] = orig
+        else:
+            env.pop("LD_LIBRARY_PATH", None)
+    tdir = bundled_tools_dir()
+    if tdir and sys.platform.startswith("linux"):
+        env["LD_LIBRARY_PATH"] = os.pathsep.join(x for x in (os.path.join(tdir, "lib"), env.get("LD_LIBRARY_PATH")) if x)
+    return env
+
+
+def make_executable(path: str):
+    """Files unpacked from the one-file app may lose their executable bit."""
+    if os.name != "nt" and os.path.isfile(path) and not os.access(path, os.X_OK):
+        try:
+            os.chmod(path, 0o755)
+        except OSError:
+            pass
+
+
 def _popen_kwargs():
-    kw = {}
+    kw = {"env": tool_env()}
     if os.name == "nt":
         kw["creationflags"] = 0x08000000   # CREATE_NO_WINDOW
     return kw
@@ -150,7 +179,17 @@ def parse_messages(text: str, folder: str) -> List[Message]:
         txt = m.group("text")
         if m.group("syntax"):
             txt = "syntax error: " + txt
+        if "implicit declaration" in txt:
+            # SDCC only warns, then linking fails: say what's wrong right here
+            fn = re.search(r"function '(\w+)'", txt)
+            kind = "error"
+            if fn:
+                txt = (f"{fn.group(1)}() isn't defined. If it's a pin helper like LED_high(), check that pin's "
+                       "name and function, then Generate.")
         out.append(Message(kind, os.path.normpath(f), int(m.group("line")), txt))
+    for m in re.finditer(r"Undefined Global '_?(\w+)' referenced by module '(\w+)'", text):
+        out.append(Message("error", os.path.join(folder, m.group(2) + ".c"), 0,
+                           f"{m.group(1)} is used in {m.group(2)}.c but defined nowhere."))
     return out
 
 
