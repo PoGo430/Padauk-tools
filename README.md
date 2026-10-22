@@ -68,6 +68,8 @@ project.pdkstudio   the settings (JSON)
 main.c              your code (only the USER CODE sections are yours)
 pdk_init.c / .h     generated: clock, calibration, fuses, pins, timers, interrupts, helpers
 pfs154.h            generated: the chip's registers and bits, from its datasheet
+.clangd             generated: lets clangd (VS Code, Neovim, ...) read SDCC code
+.vscode/            generated: the same for VS Code's C/C++ extension (IntelliSense)
 build/              compiler output; build/<name>.ihx is what gets written
 ```
 
@@ -183,6 +185,7 @@ builds both on every push and attaches them to a release for `v*` tags).
 - `test_host_serial.py`: runs the serial output code on the PC and decodes
   the bits like a UART.
 - `test_codegen.py`: user code survives regeneration; random pin setups compile.
+- `test_clangd.py`: every example opens in clangd with no errors (needs clangd).
 - `test_gui.py`: the window (offscreen): select, set and reset pins, change chip, build.
 
 ## Code layout
