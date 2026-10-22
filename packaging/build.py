@@ -102,9 +102,18 @@ def sdcc():
                 shutil.copy2(f, os.path.join(out, "bin"))
         for dll in glob.glob(os.path.join(binsrc, "*.dll")):
             shutil.copy2(dll, os.path.join(out, "bin"))
-        # cc1 for sdcpp lives in libexec (if this build has it)
-        if os.path.isdir(os.path.join(base, "libexec")):
-            shutil.copytree(os.path.join(base, "libexec"), os.path.join(out, "libexec"))
+        # sdcpp runs cc1.exe, found relative to the install (libexec/... on current versions):
+        # copy it, and the DLLs next to it, keeping its path
+        cc1 = glob.glob(os.path.join(base, "**", "cc1*.exe"), recursive=True)
+        if not cc1:
+            raise SystemExit("cc1.exe not found in the SDCC install")
+        for f in cc1:
+            d = os.path.dirname(f)
+            dest = os.path.join(out, os.path.relpath(d, base))
+            os.makedirs(dest, exist_ok=True)
+            for g in [f] + glob.glob(os.path.join(d, "*.dll")):
+                shutil.copy2(g, dest)
+            print("cc1:", os.path.relpath(f, base), flush=True)
         inc = os.path.join(base, "include")
         lib = os.path.join(base, "lib")
         if not os.path.isdir(inc):      # Unix-style layout
