@@ -91,29 +91,29 @@ def sdcc():
             for root, dirs, files in os.walk(full):
                 print(root, files[:10])
             raise SystemExit("sdcc.exe not found after installing SDCC")
-        time.sleep(5)
         binsrc = os.path.dirname(exe)
         base = os.path.dirname(binsrc)
-        print("SDCC installed in", base, os.listdir(base), flush=True)
-        os.makedirs(os.path.join(out, "bin"), exist_ok=True)
-        for b in SDCC_BINS:
-            f = os.path.join(binsrc, b + ".exe")
-            if os.path.exists(f) or b in ("sdcc", "sdcpp", "sdaspdk13", "sdaspdk14", "sdldpdk"):
-                shutil.copy2(f, os.path.join(out, "bin"))
-        for dll in glob.glob(os.path.join(binsrc, "*.dll")):
-            shutil.copy2(dll, os.path.join(out, "bin"))
-        # sdcpp runs cc1.exe, found relative to the install (libexec/... on current versions):
-        # copy it, and the DLLs next to it, keeping its path
-        cc1 = glob.glob(os.path.join(base, "**", "cc1*.exe"), recursive=True)
-        if not cc1:
-            raise SystemExit("cc1.exe not found in the SDCC install")
-        for f in cc1:
-            d = os.path.dirname(f)
-            dest = os.path.join(out, os.path.relpath(d, base))
-            os.makedirs(dest, exist_ok=True)
-            for g in [f] + glob.glob(os.path.join(d, "*.dll")):
-                shutil.copy2(g, dest)
-            print("cc1:", os.path.relpath(f, base), flush=True)
+        # the installer runs on in the background: wait until the folder stops changing
+        def snapshot():
+            return sorted((r, len(fs)) for r, _, fs in os.walk(base))
+        last, stable = None, 0
+        for _ in range(300):
+            now = snapshot()
+            stable = stable + 1 if now == last else 0
+            last = now
+            if stable >= 10 and os.path.exists(os.path.join(base, "uninstall.exe")):
+                break
+            time.sleep(1)
+        print("SDCC installed in", base, flush=True)
+        for r, _, fs in os.walk(base):
+            if "lib" not in os.path.relpath(r, base).split(os.sep)[:1] and "doc" not in r:
+                print("  ", os.path.relpath(r, base), fs[:12], flush=True)
+        # all of bin (sdcc runs helpers from there), plus anything else sdcpp needs (cc1)
+        shutil.copytree(binsrc, os.path.join(out, "bin"))
+        for f in glob.glob(os.path.join(base, "**", "cc1*.exe"), recursive=True):
+            rel = os.path.relpath(os.path.dirname(f), base)
+            if rel != "bin":
+                shutil.copytree(os.path.dirname(f), os.path.join(out, rel), dirs_exist_ok=True)
         inc = os.path.join(base, "include")
         lib = os.path.join(base, "lib")
         if not os.path.isdir(inc):      # Unix-style layout
@@ -138,6 +138,12 @@ def sdcc():
         for arch in ("pdk13", "pdk14", "pdk15"):
             shutil.copytree(os.path.join(src, "share", "sdcc", "lib", arch),
                             os.path.join(out, "share", "sdcc", "lib", arch))
+    test_dir = os.path.join(WORK, "sdcc-test")
+    os.makedirs(test_dir, exist_ok=True)
+    with open(os.path.join(test_dir, "t.c"), "w") as f:
+        f.write("unsigned char x;\nvoid main(void) { x++; }\n")
+    sh([os.path.join(out, "bin", "sdcc" + (".exe" if WIN else "")), "-mpdk14", "-o",
+        os.path.join(test_dir, "t.ihx"), os.path.join(test_dir, "t.c")])
     with open(os.path.join(out, "README.txt"), "w") as f:
         f.write(f"SDCC {SDCC_VERSION} (https://sdcc.sourceforge.net), trimmed to the Padauk (pdk) parts.\n"
                 "SDCC is free software (GPL); its source code is on SourceForge.\n")
