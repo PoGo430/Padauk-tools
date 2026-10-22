@@ -98,6 +98,9 @@ def tool_env() -> dict:
         else:
             env.pop("LD_LIBRARY_PATH", None)
     tdir = bundled_tools_dir()
+    if tdir and os.name == "nt":
+        # SDCC's preprocessor driver also looks for cc1 in COMPILER_PATH
+        env["COMPILER_PATH"] = os.path.join(tdir, "sdcc", "bin")
     if tdir and sys.platform.startswith("linux"):
         env["LD_LIBRARY_PATH"] = os.pathsep.join(x for x in (os.path.join(tdir, "lib"), env.get("LD_LIBRARY_PATH")) if x)
     return env

@@ -115,6 +115,14 @@ def sdcc():
         if os.path.isfile(cc1) and not os.path.exists(cc1 + ".exe"):
             shutil.copy2(cc1, cc1 + ".exe")
             print("added bin/cc1.exe (copy of bin/cc1)", flush=True)
+        # sdcpp (a GCC driver) looks for cc1 in <prefix>/libexec/sdcc/<target>/<version>/
+        if os.path.isfile(cc1):
+            lx = os.path.join(out, "libexec", "sdcc", "x86_64-w64-mingw32", "12.1.0")
+            os.makedirs(lx, exist_ok=True)
+            shutil.copy2(cc1, os.path.join(lx, "cc1.exe"))
+            for dll in glob.glob(os.path.join(out, "bin", "*.dll")):
+                shutil.copy2(dll, lx)
+            print("added", os.path.relpath(lx, out), "cc1.exe", flush=True)
         for f in glob.glob(os.path.join(base, "**", "cc1*.exe"), recursive=True):
             rel = os.path.relpath(os.path.dirname(f), base)
             if rel != "bin":
@@ -147,8 +155,10 @@ def sdcc():
     os.makedirs(test_dir, exist_ok=True)
     with open(os.path.join(test_dir, "t.c"), "w") as f:
         f.write("unsigned char x;\nvoid main(void) { x++; }\n")
+    env = dict(os.environ)
+    env["COMPILER_PATH"] = os.path.join(out, "bin")   # same as toolchain.tool_env()
     sh([os.path.join(out, "bin", "sdcc" + (".exe" if WIN else "")), "-mpdk14", "-o",
-        os.path.join(test_dir, "t.ihx"), os.path.join(test_dir, "t.c")])
+        os.path.join(test_dir, "t.ihx"), os.path.join(test_dir, "t.c")], env=env)
     with open(os.path.join(out, "README.txt"), "w") as f:
         f.write(f"SDCC {SDCC_VERSION} (https://sdcc.sourceforge.net), trimmed to the Padauk (pdk) parts.\n"
                 "SDCC is free software (GPL); its source code is on SourceForge.\n")
