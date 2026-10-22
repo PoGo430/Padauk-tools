@@ -98,6 +98,11 @@ class Project:
         for t in list(timers):
             if t not in chip.timers:
                 del timers[t]
+        comp = d["comparator"]
+        for key, fn, default in (("plus", "comp_plus", "VINTR"), ("minus", "comp_minus", "BANDGAP")):
+            src = comp.get(key)
+            if src not in chip.comparator[key] or (src in chip.pins and self.fn(src) != fn):
+                comp[key] = default
         if d["package"] not in [p.key for p in chip.packages]:
             d["package"] = chip.packages[0].key
         if d["clock"] not in [c.key for c in chip.clocks]:

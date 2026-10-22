@@ -93,6 +93,8 @@ class PinPage(Page):
         p = self.project
         if not p:
             return
+        if self.pin not in p.chip.pins:
+            self.pin = None
         if not self.pin:
             self.lay.addWidget(QLabel("<b>No pin selected</b>"))
             self.lay.addWidget(note("Click a pin on the chip to set it up. Right-click a pin for a quick menu; "

@@ -5,7 +5,7 @@ a menu of functions, with "Unused" at the top. Delete / Backspace resets the
 selected pin. Click the background to deselect.
 """
 
-from PySide6.QtCore import QRectF, Qt, Signal
+from PySide6.QtCore import QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPen
 from PySide6.QtWidgets import (QGraphicsItem, QGraphicsRectItem, QGraphicsScene, QGraphicsSimpleTextItem,
                                QGraphicsView, QMenu)
@@ -107,7 +107,14 @@ class ChipView(QGraphicsView):
             self.selected = None
         self.redraw()
 
+    def request_redraw(self):
+        """Redraw after the current event: the pin items may still be handling a click."""
+        if not getattr(self, "_redraw_pending", False):
+            self._redraw_pending = True
+            QTimer.singleShot(0, self.redraw)
+
     def redraw(self):
+        self._redraw_pending = False
         sc = self.scene()
         sc.clear()
         self.items = {}

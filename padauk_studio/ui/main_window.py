@@ -280,7 +280,7 @@ class MainWindow(QMainWindow):
 
     def on_change(self):
         """Something in the settings changed: save, redraw, re-check."""
-        self.chip_view.redraw()
+        self.chip_view.request_redraw()
         for pg in self.page_list:
             if pg is not self.pin_page:
                 pg.load()
