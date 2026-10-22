@@ -76,16 +76,43 @@ def sdcc():
         full = os.path.join(WORK, "sdcc-win")
         if not os.path.exists(full):
             sh([setup, "/S", f"/D={full}"])      # NSIS: silent install into this folder
+        # the installer may return before it's done; then find the files wherever they are
+        import time
+        exe = None
+        for _ in range(180):
+            hits = glob.glob(os.path.join(full, "**", "sdcc.exe"), recursive=True)
+            if not hits:
+                hits = glob.glob(os.path.join(os.environ.get("ProgramFiles", "C:/Program Files"), "SDCC", "**", "sdcc.exe"), recursive=True)
+            if hits:
+                exe = hits[0]
+                break
+            time.sleep(1)
+        if not exe:
+            for root, dirs, files in os.walk(full):
+                print(root, files[:10])
+            raise SystemExit("sdcc.exe not found after installing SDCC")
+        time.sleep(5)
+        binsrc = os.path.dirname(exe)
+        base = os.path.dirname(binsrc)
+        print("SDCC installed in", base, os.listdir(base), flush=True)
         os.makedirs(os.path.join(out, "bin"), exist_ok=True)
         for b in SDCC_BINS:
-            f = os.path.join(full, "bin", b + ".exe")
+            f = os.path.join(binsrc, b + ".exe")
             if os.path.exists(f) or b in ("sdcc", "sdcpp", "sdaspdk13", "sdaspdk14", "sdldpdk"):
                 shutil.copy2(f, os.path.join(out, "bin"))
-        for dll in glob.glob(os.path.join(full, "bin", "*.dll")):
+        for dll in glob.glob(os.path.join(binsrc, "*.dll")):
             shutil.copy2(dll, os.path.join(out, "bin"))
-        shutil.copytree(os.path.join(full, "include"), os.path.join(out, "include"))
+        # cc1 for sdcpp lives in libexec (if this build has it)
+        if os.path.isdir(os.path.join(base, "libexec")):
+            shutil.copytree(os.path.join(base, "libexec"), os.path.join(out, "libexec"))
+        inc = os.path.join(base, "include")
+        lib = os.path.join(base, "lib")
+        if not os.path.isdir(inc):      # Unix-style layout
+            inc = os.path.join(base, "share", "sdcc", "include")
+            lib = os.path.join(base, "share", "sdcc", "lib")
+        shutil.copytree(inc, os.path.join(out, "include"))
         for arch in ("pdk13", "pdk14", "pdk15"):
-            shutil.copytree(os.path.join(full, "lib", arch), os.path.join(out, "lib", arch))
+            shutil.copytree(os.path.join(lib, arch), os.path.join(out, "lib", arch))
     else:
         tb = download(SDCC_URL["linux"], os.path.join(WORK, "sdcc.tar.bz2"))
         full = os.path.join(WORK, "sdcc-linux")
