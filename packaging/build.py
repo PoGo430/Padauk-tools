@@ -110,6 +110,11 @@ def sdcc():
                 print("  ", os.path.relpath(r, base), fs[:12], flush=True)
         # all of bin (sdcc runs helpers from there), plus anything else sdcpp needs (cc1)
         shutil.copytree(binsrc, os.path.join(out, "bin"))
+        # SDCC 4.6.0's Windows installer ships cc1 without .exe, and sdcpp then can't start it
+        cc1 = os.path.join(out, "bin", "cc1")
+        if os.path.isfile(cc1) and not os.path.exists(cc1 + ".exe"):
+            shutil.copy2(cc1, cc1 + ".exe")
+            print("added bin/cc1.exe (copy of bin/cc1)", flush=True)
         for f in glob.glob(os.path.join(base, "**", "cc1*.exe"), recursive=True):
             rel = os.path.relpath(os.path.dirname(f), base)
             if rel != "bin":
