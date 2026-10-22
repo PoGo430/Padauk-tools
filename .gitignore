@@ -1,30 +1,8 @@
-# Build output
-.build/
-.output/
-*.ihx
-*.bin
-*.map
-*.lst
-*.rel
-*.sym
-*.rst
-*.asm
-*.lk
-*.cdb
-*.adb
-*.noi
-*.mem
-
-# Python
 __pycache__/
 *.pyc
-.pdk-backup/
-
-# Editors
-*.layout
-*.depend
-*.swp
-PadaukBuilder/build/
-PadaukBuilder/dist/
-*.spec
-main.c.bak
+build/
+dist/
+packaging/tools-*/
+packaging/work/
+*.spec.bak
+.pytest_cache/

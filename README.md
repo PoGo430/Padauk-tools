@@ -1,154 +1,217 @@
-# Padauk Tools
+# Padauk Studio
 
-Write, build and flash **Padauk microcontrollers** from **VS Code** (or the
-terminal) with the open-source [free-pdk](https://free-pdk.github.io)
-toolchain: [SDCC](https://sdcc.sourceforge.net) and the
-[Easy PDK programmer](https://github.com/free-pdk/easy-pdk-programmer-software).
+A CubeMX-style tool for the Padauk **PMS150C**, **PFS154** and **PFS122**
+microcontrollers. Click pins on a drawing of the chip, pick what they do, and
+it writes the start-up C code. Then build with SDCC and write the chip with the
+[Easy PDK programmer](https://github.com/free-pdk/easy-pdk-programmer-software),
+all from one window.
 
-Made for the **PFS154**, **PFS122** and **PMS150C**. It also builds for the
-other chips in the free-pdk headers (`pdk devices`).
+![Padauk Studio](docs/screenshot.png)
 
-## Setup (once)
+It's one file with everything inside: SDCC 4.6.0, easypdkprog with native
+PFS122 support (from the [PoGo430 fork](https://github.com/PoGo430/easy-pdk-programmer-software)),
+the programmer firmware 1.4, dfu-util and the examples. Nothing else to install.
 
-1. Install SDCC, make and easypdkprog: see **[docs/setup.md](docs/setup.md)**.
-   For the **PFS122**, `tools/build-easypdkprog.sh` builds easypdkprog with
-   native PFS122 support (stable 1.3 code + PFS122); flash its 1.4 programmer
-   firmware once (see setup.md).
-2. Put the `pdk` command on your PATH and check everything:
-   ```sh
-   ./pdk install        # symlinks pdk into ~/.local/bin
-   pdk doctor           # checks sdcc, make, easypdkprog, USB permissions, VS Code
-   ```
-3. In VS Code, install the **C/C++** extension (it's suggested automatically
-   when you open a project).
+## Download and run
 
-## New project
+Get `padauk-studio` (Linux) or `padauk-studio.exe` (Windows) from the
+[Releases](../../releases) page, or from the latest run on the
+[Actions](../../actions) page (Artifacts).
 
 ```sh
-pdk new blinky                              # PFS154, opens VS Code
-pdk new adc-test -d PFS122
-pdk new hello -d PMS150C -e serial_hello    # start from an example (pdk examples)
+chmod +x padauk-studio
+./padauk-studio
 ```
 
-## In VS Code
-
-| | |
-|---|---|
-| **Ctrl+Shift+B** | Build. Errors and warnings show up in the Problems panel, clickable |
-| Status bar buttons | **Build**, **Flash**, **Monitor**, **Device** (with the suggested *Task Buttons* extension) |
-| Ctrl+Shift+P > *Run Task* | all tasks: Flash, Flash + Monitor, Monitor, Probe, Erase, Clean, Select device / clock / voltage |
-
-- **Select device** shows a list of chips. The choice is saved in the
-  Makefile, and IntelliSense switches to that chip's registers, so `PBC` is
-  flagged as an error on a PMS150C (it has no port B).
-- **Monitor** powers the chip from the programmer and shows what it prints on
-  PA7 (`include/serial.h`). Handy for printf-style debugging.
-- SDCC-specific syntax (`__sfr`, `__at()`, `__interrupt()`, inline asm) is
-  handled, so the headers don't light up red.
-
-## Pin configurator (CubeMX-style)
+Linux, once: to use the programmer without root, add yourself to the
+`dialout` group and log in again:
 
 ```sh
-pdk configure        # or "Configure pins..." in the GUI, or the Pins button in VS Code
+sudo usermod -aG dialout $USER
 ```
 
-Click pins on a drawing of your chip and package to make them outputs,
-inputs, interrupts, PWM, comparator or ADC inputs, or the serial debug
-output. It also covers clock, watchdog, fuses and low-voltage reset.
-**Generate code** writes `pdk_init.c/h` with named helpers (`LED_toggle()`,
-`BUTTON_read()`, `FAN_set_duty(x)`, ...) and hooks them into `main.c`.
-Conflicts, such as two functions needing the same timer, are flagged
-before you generate. See **[docs/configurator.md](docs/configurator.md)**.
+## Using it
 
-## GUI
+1. **File > New**: pick the chip, the package and an example (or an empty project).
+2. **Set up pins**: click a pin on the drawing. The **Pin** page on the right
+   shows what it can do; pick a function, give it a name (like `LED`) and
+   settings. To clear a pin: choose **Unused**, press **Delete**, or
+   right-click it. Nothing pops up in your way.
+3. **Clock & power**, **Timers**, **Comparator**, **ADC** (PFS122) and
+   **Serial** pages hold the rest. The **Problems** list checks everything as
+   you go (clock too fast for the supply voltage, two pins on one PWM
+   timer, ...). Double-click a problem to jump to it.
+4. **Code** tab: write your program in `main.c` between the
+   `USER CODE BEGIN` / `USER CODE END` lines. That code is kept when the
+   settings change and the code is generated again. Or open the folder in VS
+   Code (button on the Code tab).
+5. **Build** (Ctrl+B) shows ROM and RAM use; errors are clickable.
+   **Write to chip** (Ctrl+U) builds and writes the chip in the programmer
+   (OTP chips ask first). **Monitor** (Ctrl+M) runs the chip in the
+   programmer and shows what it prints with `serial_print()`.
 
-Prefer buttons? `pdk gui` (needs `pip install PyQt5`) opens the Padauk Tools
-window on the current project:
+### What the generated code gives you
 
-- **New / Open** projects (pick the chip and a starting example)
-- chip, clock and supply voltage dropdowns, saved straight to the Makefile
-- **Build**, **Flash**, **Flash + Monitor**, **Monitor**, **Stop**, plus Probe, Erase, Clean
-- ROM/RAM bars after each build, colored errors (double-click one to open the file)
-- **Configure pins...** opens the pin configurator
-- **Doctor** checks your setup, **Upgrade** refreshes the project from the template
-- asks before writing a one-time-programmable chip
-- shortcuts: Ctrl+B build, Ctrl+U flash, Ctrl+M monitor, Esc stop
+For a pin named `LED` set as an output: `LED_high()`, `LED_low()`,
+`LED_toggle()`, `LED_set(x)`, `LED_read()`. Inputs: `BUTTON_read()`. PWM
+pins: `FAN_set_duty(v)` (0 .. `FAN_DUTY_MAX`), `FAN_off()`, `FAN_on()`. ADC
+pins: `POT_read()` (0..4095) and `vdd_read_mv()`. Also `delay_ms()`,
+`delay_us()`, `millis()` (Timer16), `comparator_read()`,
+`serial_print()` / `serial_println()` / `serial_print_uint()` /
+`serial_print_hex()`, and the interrupt handler with a section per source
+(`irq_PA0`, `irq_T16`, `irq_TM2`, ...).
 
-It uses the same project files as VS Code and `pdk`, so you can mix them.
-For a standalone executable: `python3 PadaukBuilder/build_executables.py`.
+### Project folder
 
-## In the terminal
+```
+project.pdkstudio   the settings (JSON)
+main.c              your code (only the USER CODE sections are yours)
+pdk_init.c / .h     generated: clock, calibration, fuses, pins, timers, interrupts, helpers
+pfs154.h            generated: the chip's registers and bits, from its datasheet
+.clangd             generated: lets clangd (VS Code, Neovim, ...) read SDCC code
+.vscode/            generated: the same for VS Code's C/C++ extension (IntelliSense)
+build/              compiler output; build/<name>.ihx is what gets written
+```
 
-Run these anywhere inside a project folder:
+Extra `.c` files in the folder are compiled too.
+
+### Examples
+
+| Example | PMS150C | PFS154 | PFS122 |
+|---|:-:|:-:|:-:|
+| Blink, Blink with millis(), Button controls LED, Button interrupt, Sleep and wake up | ✓ | ✓ | ✓ |
+| Serial: Hello World, Serial: button presses | ✓ | ✓ | ✓ |
+| PWM: fade an LED (Timer2), Timer2 periodic interrupt, Watchdog | ✓ | ✓ | ✓ |
+| Comparator: light sensor / threshold, Comparator: low battery warning | ✓ | ✓ | ✓ |
+| PWM: two channels (Timer2 + Timer3) | | ✓ | ✓ |
+| PWM: 11-bit generator (PWMG1) | | ✓ | |
+| ADC: read a potentiometer (+ VDD) | | | ✓ |
+
+Several are ports of [free-pdk-examples](https://github.com/free-pdk/free-pdk-examples).
+
+## The programmer's firmware
+
+The PFS122 needs the programmer firmware **1.4** (the PFS154 and PMS150C work
+with 1.3 too). **Chip > Programmer...** probes the programmer and shows its
+firmware version. To update it:
+
+1. Unplug the programmer.
+2. Hold its button while plugging it in (it's now in DFU mode).
+3. Press **Write firmware**, wait, then unplug and plug it in again.
+
+On Linux, if dfu-util can't open the device, allow it once (the dialog shows
+this command too):
 
 ```sh
-pdk build                     # compile + ROM/RAM usage
-pdk flash                     # write the chip (asks first for OTP chips)
-pdk flash -m                  # write, then monitor serial output
-pdk monitor                   # power the chip, show serial output (Ctrl+C to stop)
-pdk probe                     # what's in the programmer socket?
-pdk set device=PMS150C clock=1M vdd=3.3
-pdk device                    # show settings (pdk device PFS122 to change)
-pdk erase | read | clean
-pdk upgrade                   # pull template improvements into an existing project
-pdk configure                 # pin configurator; pdk generate regenerates its code without the GUI
+echo 'SUBSYSTEM=="usb", ATTR{idVendor}=="0483", ATTR{idProduct}=="df11", MODE="0666"' | sudo tee /etc/udev/rules.d/49-stm32-dfu.rules
+sudo udevadm control --reload
 ```
 
-`pdk` only drives the project's Makefile, so plain `make`, `make program`,
-`make run`, `make set DEVICE=PFS122` and so on work too (`make help`).
+## The chips
 
-Example build output:
+| | PMS150C | PFS154 | PFS122 |
+|---|---|---|---|
+| Memory | **OTP** (write once) | flash | flash |
+| ROM / RAM | 1 K words / 64 B | 2 K words / 128 B | 2 K words / 128 B |
+| Pins | PA0, PA3-PA7 | PA0, PA3-PA7, PB0-PB7 | PA0, PA3-PA7, PB0-PB7 |
+| Timers | T16, TM2 | T16, TM2, TM3 | T16, TM2, TM3 |
+| PWM | TM2 (8-bit) | TM2, TM3 (8-bit), PWMG0-2 (11-bit) | TM2, TM3 (8-bit) |
+| Analog | comparator | comparator | comparator, 12-bit ADC |
+| Clock | 8 MHz needs VDD ≥ 3.0 V | 8 MHz needs VDD ≥ 3.5 V | 8 MHz needs VDD ≥ 3.0 V |
+
+Everything about each chip (registers, bits, pins, packages, clock limits,
+fuses) is in `padauk_studio/chips/`, written from the datasheets (PMS150C
+V004, PFS154 V107, PFS122 V002/V004). The few things that aren't in the
+datasheets are marked `source="free-pdk"`:
+
+- the oscillator and bandgap trim registers (written by the calibration code),
+- PFS154 `MISCLVR` / `MISC2` and PFS122 `ROP` / `MISCLVR` / `MISC2`: the
+  "code options" (low-voltage reset level, interrupt pin choice, comparator
+  edge) that Padauk's IDE sets. The PFS122 ones come from free-pdk's
+  documentation of the PFS172 (same core and chip ID),
+- the PFS154's RC-to-frequency converter (RFCC), as plain registers in the header.
+
+## Hardware test checklist
+
+The code is tested on a simulator (see Tests), but not yet on real chips.
+Worth checking once per chip, in this order:
+
+1. **Programmer**: Chip > Programmer... > Probe shows Firmware 1.4 and the chip in the socket.
+2. **Blink** (PFS154 first, it's rewritable): LED on PA4 blinks at 1 Hz. If it's much
+   faster or slower, the clock calibration didn't happen (look for "calibration" in Output).
+3. **Serial: Hello World**: Monitor shows `Hello from PFS154!` and a counter.
+4. **PWM: fade an LED** and **PWM: 11-bit generator**: smooth fading; with a meter or scope
+   the frequency is about 1 kHz.
+5. **Button interrupt** and **Sleep and wake up**: the button toggles / wakes it up.
+6. **PFS122**: the same, plus **ADC: read a potentiometer** (values 0..4095, VDD about right).
+   The PFS122's interrupt pin choice (PA0/PB5) and low-voltage reset use the free-pdk PFS172
+   registers: worth checking that a PB5 interrupt and the LVR level work.
+7. **PMS150C** (OTP): only after the PFS154 versions work. Blink and Serial first.
+
+## Command line
+
+The same program works without the window:
+
+```sh
+padauk-studio new myproj -c PFS154 -e blink   # examples: padauk-studio examples
+padauk-studio build myproj
+padauk-studio write myproj
+padauk-studio monitor myproj
+padauk-studio check                           # which tools it found
+```
+
+## Building from source
+
+```sh
+pip install pyside6 pyinstaller pytest
+python packaging/build.py --tools     # SDCC, easypdkprog (from the fork), dfu-util -> packaging/tools-linux
+python -m padauk_studio               # run from source
+python -m pytest tests                # tests
+python packaging/build.py             # one-file executable -> dist/
+```
+
+Linux needs `build-essential`, `git` and `dfu-util`; Windows needs MSYS2 with
+MinGW gcc and make for easypdkprog (see `.github/workflows/build.yml`, which
+builds both on every push and attaches them to a release for `v*` tags).
+
+### Tests
+
+- `test_chips.py`: register addresses and bit values typed again from the
+  datasheets, compared with the chip database; every macro the generator uses exists.
+- `test_examples_build.py`: every example generated and compiled for every
+  chip it supports, with no warnings.
+- `test_sim.py`: runs the start-up code of every example in SDCC's simulator
+  (ucsim) and checks the registers it sets; checks `delay_ms()` timing.
+- `test_host_serial.py`: runs the serial output code on the PC and decodes
+  the bits like a UART.
+- `test_codegen.py`: user code survives regeneration; random pin setups compile.
+- `test_clangd.py`: every example opens in clangd with no errors (needs clangd).
+- `test_gui.py`: the window (offscreen): select, set and reset pins, change chip, build.
+
+## Code layout
 
 ```
-  PFS154 (pdk14)  F_CPU=8000000 Hz  VDD=5.00 V
-  ROM:    81 /  2048 words  (  3%)
-  RAM:    10 /   128 bytes  (  7%)  static data, stack uses the rest
+padauk_studio/
+  chips/         the chip database (one file per chip)
+  gen_header.py  chip register header from the database
+  codegen.py     pdk_init.c/h and main.c
+  checks.py      the Problems list
+  timing.py      timer / PWM settings for a frequency
+  project.py     project settings and pin assignment rules
+  toolchain.py   finds and runs sdcc, easypdkprog, dfu-util
+  examples.py    the examples
+  ui/            the window (PySide6)
+  firmware/      programmer firmware 1.4 (from the PoGo430 fork)
+packaging/       build script for the executable
+tests/
 ```
 
-## Project layout
+## Credits and licenses
 
-```
-main.c         setup(), loop(), interrupt handler, clock startup
-board.h        pin assignments + PIN_OUTPUT / PIN_HIGH / PIN_READ helpers
-src/           extra .c/.h files (built automatically)
-Makefile       settings at the top: DEVICE, F_CPU, TARGET_VDD_MV
-include/       free-pdk headers + delay.h, millis.h, serial.h
-.vscode/       tasks, IntelliSense config (pdk_config.h is generated, don't edit)
-```
-
-| Setting | Default | |
-|---|---|---|
-| `DEVICE` | `PFS154` | chip; picks pdk13/14/15 and ROM/RAM size automatically |
-| `F_CPU` | `8000000` | clock in Hz: 8M, 4M, 2M, 1M, 500k, 250k from the internal oscillator |
-| `TARGET_VDD_MV` | `5000` | your circuit's supply voltage. The clock is calibrated for it, and Monitor powers the chip at it |
-| `PROG_PORT` | auto | e.g. `/dev/ttyACM0` |
-| `PROG_FLAGS` | | extra easypdkprog options, e.g. `--securefill` |
-| `EASYPDKPROG` | `easypdkprog` | path to easypdkprog, e.g. a development build |
-
-## This repo
-
-```
-pdk            the command-line tool (Python 3, no extra packages)
-PadaukBuilder/ the GUI (pdk gui) and pin configurator (pdk configure)
-template/      what `pdk new` copies
-examples/      blink_irq, button_led, serial_hello, button_serial
-docs/          setup.md (install), chips.md (chip notes), configurator.md
-tools/         test-all.sh, test-configurator.py (compile-test random pin setups),
-               build-easypdkprog.sh (stable + native PFS122), build-easypdkprog-dev.sh (development branch)
-```
-
-`tools/test-all.sh` builds the template and every example for the three
-chips. GitHub Actions runs it, plus a `pdk` smoke test, on every push.
-
-The template also contains a Code::Blocks project (`.cbp`) with Build /
-Program / Run targets, if you prefer that editor.
-
-## Credits
-
-`include/pdk` is [pdk-includes](https://github.com/free-pdk/pdk-includes)
-(commit `874918f`), `include/easy-pdk` is
-[easy-pdk-includes](https://github.com/free-pdk/easy-pdk-includes), and
-`delay.h`, `millis.h`, `serial.h`, `auto_sysclock.h`, `startup.h` come from
-[free-pdk-examples](https://github.com/free-pdk/free-pdk-examples)
-(`delay.h` has small guards added for editors). See the licenses in those
-folders.
+- [free-pdk](https://free-pdk.github.io): the open Padauk toolchain, the Easy PDK
+  programmer, and the knowledge about undocumented registers and calibration.
+- [SDCC](https://sdcc.sourceforge.net) (GPL) is bundled unmodified, trimmed to the
+  Padauk parts; source code on SourceForge.
+- easypdkprog and its firmware (GPL-3.0) are built from the
+  [PoGo430 fork](https://github.com/PoGo430/easy-pdk-programmer-software).
+- dfu-util (GPL-2.0) is bundled for firmware updates.
